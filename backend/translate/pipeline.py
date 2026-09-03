@@ -4,6 +4,7 @@ import sys
 from urllib.parse import urlparse, parse_qs
 
 import pysbd
+import torch
 from youtube_transcript_api import YouTubeTranscriptApi
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
@@ -87,7 +88,10 @@ def load_translator():
     global _tokenizer, _model
     if _model is None:
         _tokenizer = AutoTokenizer.from_pretrained(TRANSLATE_MODEL_NAME)
-        _model = AutoModelForSeq2SeqLM.from_pretrained(TRANSLATE_MODEL_NAME)
+        # bfloat16 halves the resident memory (~1.4GB vs ~2.9GB in float32) with
+        # no meaningful quality loss, which matters when this runs alongside
+        # Android Studio/the emulator on the same machine.
+        _model = AutoModelForSeq2SeqLM.from_pretrained(TRANSLATE_MODEL_NAME, torch_dtype=torch.bfloat16)
         _tokenizer.src_lang = "eng_Latn"
     return _tokenizer, _model
 
