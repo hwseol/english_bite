@@ -14,8 +14,11 @@ interface IngestApi {
 }
 
 object ApiClient {
-    // 10.0.2.2 is the emulator's alias for the host machine's localhost.
-    private const val BASE_URL = "http://10.0.2.2:8000/"
+    // Talk to the backend over "adb reverse tcp:8000 tcp:8000", which tunnels
+    // the device's own localhost:8000 to the host machine's localhost:8000
+    // over the USB/adb connection. Works the same way for the emulator and a
+    // real device, and sidesteps needing them on the same Wi-Fi/LAN.
+    private const val BASE_URL = "http://127.0.0.1:8000/"
 
     val ingestApi: IngestApi by lazy {
         val logging = HttpLoggingInterceptor().apply {
