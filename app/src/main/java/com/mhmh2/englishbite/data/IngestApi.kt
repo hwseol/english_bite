@@ -23,9 +23,9 @@ object ApiClient {
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
-            // first-time ingest can take ~1-2 minutes (model load + translation)
+            // first-time ingest can take a few minutes (model load + translation)
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(180, TimeUnit.SECONDS)
+            .readTimeout(300, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .build()
 
