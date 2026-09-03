@@ -97,14 +97,32 @@ def load_translator():
 
 
 def translate_to_ko(text: str) -> str:
+    return translate_batch([text])[0]
+
+
+def translate_batch(texts: list[str], batch_size: int = 16) -> list[str]:
+    """Batching multiple sentences per generate() call only pays off if sentences
+    of similar length are grouped together - otherwise every sequence in a batch
+    gets padded up to the longest one and most of that compute is wasted on
+    padding. Sort by length into batches, translate, then restore original order."""
     tokenizer, model = load_translator()
-    inputs = tokenizer(text, return_tensors="pt")
-    tokens = model.generate(
-        **inputs,
-        forced_bos_token_id=tokenizer.convert_tokens_to_ids("kor_Hang"),
-        max_length=200,
-    )
-    return tokenizer.batch_decode(tokens, skip_special_tokens=True)[0]
+    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+    results = [None] * len(texts)
+
+    for i in range(0, len(order), batch_size):
+        batch_indices = order[i:i + batch_size]
+        chunk = [texts[j] for j in batch_indices]
+        inputs = tokenizer(chunk, return_tensors="pt", padding=True, truncation=True, max_length=200)
+        with torch.no_grad():
+            tokens = model.generate(
+                **inputs,
+                forced_bos_token_id=tokenizer.convert_tokens_to_ids("kor_Hang"),
+                max_length=200,
+            )
+        for j, decoded in zip(batch_indices, tokenizer.batch_decode(tokens, skip_special_tokens=True)):
+            results[j] = decoded
+
+    return results
 
 
 def process_video(url: str):
@@ -112,8 +130,9 @@ def process_video(url: str):
     cues = fetch_caption_cues(video_id)
     sentences = cues_to_sentences(cues)
 
-    for sentence in sentences:
-        sentence["ko"] = translate_to_ko(sentence["text"])
+    translations = translate_batch([s["text"] for s in sentences])
+    for sentence, ko in zip(sentences, translations):
+        sentence["ko"] = ko
 
     return {"video_id": video_id, "sentence_count": len(sentences), "sentences": sentences}
 
