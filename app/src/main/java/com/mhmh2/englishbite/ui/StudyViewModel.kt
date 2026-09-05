@@ -10,6 +10,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
+import java.io.IOException
 
 sealed interface UiState {
     data object Idle : UiState
@@ -19,7 +21,6 @@ sealed interface UiState {
 }
 
 private const val POLL_INTERVAL_MS = 4000L
-private const val MAX_CONSECUTIVE_POLL_FAILURES = 5
 
 class StudyViewModel : ViewModel() {
     private val _uiState = MutableStateFlow<UiState>(UiState.Idle)
@@ -28,15 +29,21 @@ class StudyViewModel : ViewModel() {
     fun submitUrl(url: String) {
         _uiState.value = UiState.Loading
         viewModelScope.launch {
-            try {
-                val response = ApiClient.ingestApi.ingestVideo(IngestRequest(url))
-                if (response.status == "done") {
-                    _uiState.value = UiState.Success(response.toVideoResult())
-                } else {
-                    pollUntilDone(response.video_id)
+            while (true) {
+                try {
+                    val response = ApiClient.ingestApi.ingestVideo(IngestRequest(url))
+                    if (response.status == "done") {
+                        _uiState.value = UiState.Success(response.toVideoResult())
+                    } else {
+                        pollUntilDone(response.video_id)
+                    }
+                    return@launch
+                } catch (e: IOException) {
+                    delay(POLL_INTERVAL_MS) // network hiccup right at submit time - retry
+                } catch (e: HttpException) {
+                    _uiState.value = UiState.Error(e.message() ?: "알 수 없는 오류가 발생했습니다")
+                    return@launch
                 }
-            } catch (e: Exception) {
-                _uiState.value = UiState.Error(e.message ?: "알 수 없는 오류가 발생했습니다")
             }
         }
     }
@@ -44,22 +51,24 @@ class StudyViewModel : ViewModel() {
     /** Each poll is a cheap, near-instant request - unlike one long held-open connection,
      * this survives the screen sleeping, the app briefly backgrounding, or a flaky network
      * hiccup along the way, because the actual translation work keeps running server-side
-     * regardless of whether any particular poll succeeds. */
+     * regardless of whether any particular poll succeeds. A dropped wifi connection, DNS
+     * hiccup, etc. is exactly the kind of transient condition this is meant to ride out, so
+     * network errors never give up on their own - only a real server-reported failure (the
+     * translation itself errored) does. */
     private suspend fun pollUntilDone(videoId: String) {
-        var consecutiveFailures = 0
         while (true) {
             delay(POLL_INTERVAL_MS)
             val response = try {
                 ApiClient.ingestApi.getVideo(videoId)
-            } catch (e: Exception) {
-                consecutiveFailures++
-                if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
-                    _uiState.value = UiState.Error(e.message ?: "서버와 연결이 끊겼습니다")
+            } catch (e: IOException) {
+                continue // network hiccup - the server-side job is unaffected, keep trying
+            } catch (e: HttpException) {
+                if (e.code() == 502) {
+                    _uiState.value = UiState.Error("번역 처리 중 오류가 발생했습니다: ${e.message()}")
                     return
                 }
                 continue
             }
-            consecutiveFailures = 0
             if (response.status == "done") {
                 _uiState.value = UiState.Success(response.toVideoResult())
                 return
