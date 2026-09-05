@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 
 /**
@@ -24,7 +25,8 @@ fun KaraokeText(
     style: TextStyle,
     highlightColor: Color,
     modifier: Modifier = Modifier,
-    baseColor: Color = LocalContentColor.current
+    baseColor: Color = LocalContentColor.current,
+    maxLines: Int = Int.MAX_VALUE
 ) {
     val words = remember(text) { text.split(" ") }
     val totalChars = text.length.coerceAtLeast(1)
@@ -45,5 +47,11 @@ fun KaraokeText(
         }
     }
 
-    Text(text = annotated, style = style, modifier = modifier)
+    Text(
+        text = annotated,
+        style = style,
+        modifier = modifier,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis
+    )
 }

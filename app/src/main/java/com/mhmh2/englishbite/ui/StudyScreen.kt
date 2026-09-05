@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -61,13 +62,21 @@ private fun Context.findActivity(): Activity? {
     return null
 }
 
-/** Long sentences would otherwise overflow/clip in the fixed subtitle area - step the type
- * scale down as the sentence gets longer instead of letting it run off the edge. */
+/** Long sentences would otherwise overflow/clip in the subtitle area. The English and Korean
+ * lines were scaled independently before - English shrank with its own length but Korean
+ * stayed fixed-size, so a short English sentence with a long Korean translation (or vice
+ * versa) could still overflow. Score both together (Korean characters render noticeably wider
+ * than Latin ones at the same font size, hence the weight) and scale both from one shared tier. */
+private data class SubtitleStyles(val english: TextStyle, val korean: TextStyle)
+
 @Composable
-private fun englishSubtitleStyle(text: String): TextStyle = when {
-    text.length > 140 -> MaterialTheme.typography.bodyLarge
-    text.length > 90 -> MaterialTheme.typography.titleLarge
-    else -> MaterialTheme.typography.headlineMedium
+private fun subtitleStyles(english: String, korean: String): SubtitleStyles {
+    val weight = english.length + korean.length * 1.6
+    return when {
+        weight > 220 -> SubtitleStyles(MaterialTheme.typography.bodyMedium, MaterialTheme.typography.bodySmall)
+        weight > 140 -> SubtitleStyles(MaterialTheme.typography.titleLarge, MaterialTheme.typography.bodyMedium)
+        else -> SubtitleStyles(MaterialTheme.typography.headlineMedium, MaterialTheme.typography.bodyLarge)
+    }
 }
 
 @Composable
@@ -87,7 +96,12 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
     val progress = remember(currentSecond, currentSentence) {
         val s = currentSentence ?: return@remember 0f
         val span = (s.end - s.start).coerceAtLeast(0.001)
-        ((currentSecond - s.start) / span).toFloat()
+        val linear = (currentSecond - s.start) / span
+        // Character-count-proportional timing (no real per-word timestamps exist) tends to
+        // read as lagging the actual speech - people plainly speak the back half of a sentence
+        // a bit faster than a flat split predicts. A fixed lead factor is a rough fix, not a
+        // real one; true per-word sync would need forced alignment against the audio.
+        (linear * 1.25).toFloat()
     }
 
     fun setFullscreen(enabled: Boolean) {
@@ -194,6 +208,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
             }
 
             if (isFullscreen && currentSentence != null) {
+                val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -204,14 +219,17 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                     KaraokeText(
                         text = currentSentence.text,
                         progress = progress,
-                        style = englishSubtitleStyle(currentSentence.text),
+                        style = styles.english,
                         highlightColor = MaterialTheme.colorScheme.primary,
-                        baseColor = Color.White
+                        baseColor = Color.White,
+                        maxLines = 2
                     )
                     Text(
                         text = currentSentence.ko,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = styles.korean,
                         color = Color.White.copy(alpha = 0.8f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
@@ -225,18 +243,22 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                     .padding(24.dp)
             ) {
                 if (currentSentence != null) {
+                    val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     Column {
                         KaraokeText(
                             text = currentSentence.text,
                             progress = progress,
-                            style = englishSubtitleStyle(currentSentence.text),
+                            style = styles.english,
                             highlightColor = MaterialTheme.colorScheme.primary,
-                            baseColor = MaterialTheme.colorScheme.onSurface
+                            baseColor = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 3
                         )
                         Text(
                             text = currentSentence.ko,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = styles.korean,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 12.dp)
                         )
                     }
