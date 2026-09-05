@@ -11,11 +11,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -132,13 +135,22 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
     ) {
         Box(
             modifier = if (isFullscreen) {
-                Modifier.fillMaxSize()
+                Modifier.fillMaxSize().background(Color.Black)
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-            }
+            },
+            contentAlignment = Alignment.Center
         ) {
             AndroidView(
-                modifier = Modifier.fillMaxSize(),
+                // Fullscreen on a wider-than-16:9 display (e.g. the S23's ~19.5:9 in landscape)
+                // must letterbox by height, not stretch to fill both dimensions - otherwise the
+                // video gets cropped/zoomed and, since the crop pushes the player's own control
+                // bar past the visible edge, YouTube's controls appear to vanish along with it.
+                modifier = if (isFullscreen) {
+                    Modifier.fillMaxHeight().aspectRatio(16f / 9f)
+                } else {
+                    Modifier.fillMaxSize()
+                },
                 factory = { ctx ->
                     YouTubePlayerView(ctx).apply {
                         lifecycleOwner.lifecycle.addObserver(this)
@@ -163,14 +175,21 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                 }
             )
 
+            // Top-end, not bottom-end: YouTube's own control bar already occupies the bottom
+            // edge, and our icon was getting lost against/behind it there.
             IconButton(
                 onClick = { setFullscreen(!isFullscreen) },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    .size(40.dp)
             ) {
                 Icon(
                     imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                     contentDescription = if (isFullscreen) "화면 축소" else "화면 크게",
-                    tint = Color.White
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
                 )
             }
 
