@@ -6,12 +6,22 @@ from urllib.parse import urlparse, parse_qs
 import pysbd
 import torch
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api._errors import (
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    VideoUnavailable,
+)
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 TRANSLATE_MODEL_NAME = "NHNDQ/nllb-finetuned-en2ko"
 
 _tokenizer = None
 _model = None
+
+
+class UserFacingError(Exception):
+    """Raised for failures worth showing the user a specific, actionable message for,
+    as opposed to an unexpected bug that should surface as a generic server error."""
 
 
 def extract_video_id(url: str) -> str:
@@ -28,11 +38,21 @@ def extract_video_id(url: str) -> str:
 
 def fetch_caption_cues(video_id: str):
     api = YouTubeTranscriptApi()
-    transcript_list = api.list(video_id)
+    try:
+        transcript_list = api.list(video_id)
+    except TranscriptsDisabled:
+        raise UserFacingError("이 영상은 자막이 꺼져 있어 학습에 사용할 수 없어요. 다른 영상을 시도해주세요.")
+    except VideoUnavailable:
+        raise UserFacingError("이 영상을 찾을 수 없어요. 비공개 영상이거나 삭제된 영상일 수 있어요.")
+
     try:
         transcript = transcript_list.find_manually_created_transcript(["en"])
     except Exception:
-        transcript = transcript_list.find_generated_transcript(["en"])
+        try:
+            transcript = transcript_list.find_generated_transcript(["en"])
+        except NoTranscriptFound:
+            raise UserFacingError("이 영상에는 영어 자막이 없어요. 영어 자막이 있는 영상을 시도해주세요.")
+
     fetched = transcript.fetch()
     return [
         {"text": snippet.text, "start": snippet.start, "duration": snippet.duration}

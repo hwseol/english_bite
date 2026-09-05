@@ -1,6 +1,5 @@
 package com.mhmh2.englishbite.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,9 +33,10 @@ fun HomeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 28.dp),
-        verticalArrangement = Arrangement.Center
+            .padding(horizontal = 28.dp)
     ) {
+        Spacer(Modifier.height(72.dp))
+
         Text(
             text = "English",
             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)

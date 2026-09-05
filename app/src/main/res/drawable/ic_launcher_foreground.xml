@@ -3,7 +3,12 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Speech bubble ("English") with a bite taken out of it ("Bite") -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,24 L38,84 L47,84 L50.5,70 L57.5,70 L61,84 L70,84 Z M52,62 L56,46 L60,62 Z" />
+        android:fillColor="#FF6B4A"
+        android:pathData="M30,26 L78,26 A10,10 0 0 1 88,36 L88,64 A10,10 0 0 1 78,74 L44,74 L30,88 L34,74 L30,74 A10,10 0 0 1 20,64 L20,36 A10,10 0 0 1 30,26 Z" />
+    <!-- Bite notch, cut using the background color -->
+    <path
+        android:fillColor="#0E0E12"
+        android:pathData="M84,24 A13,13 0 1 1 84,50 A13,13 0 1 1 84,24 Z" />
 </vector>

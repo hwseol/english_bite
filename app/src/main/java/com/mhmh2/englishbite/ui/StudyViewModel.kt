@@ -2,6 +2,7 @@ package com.mhmh2.englishbite.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
 import com.mhmh2.englishbite.data.ApiClient
 import com.mhmh2.englishbite.data.IngestRequest
 import com.mhmh2.englishbite.data.IngestResponse
@@ -12,6 +13,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.io.IOException
+
+private data class ErrorBody(val detail: String?)
+
+/** FastAPI's HTTPException serializes as {"detail": "..."} - Retrofit's HttpException.message()
+ * only ever returns the generic HTTP reason phrase ("Bad Gateway"), not that body, so the
+ * user-facing message we went to the trouble of writing server-side never showed up. */
+private fun HttpException.userMessage(): String {
+    val body = response()?.errorBody()?.string()
+    val detail = body?.let { runCatching { Gson().fromJson(it, ErrorBody::class.java).detail }.getOrNull() }
+    return detail ?: message() ?: "알 수 없는 오류가 발생했습니다"
+}
 
 sealed interface UiState {
     data object Idle : UiState
@@ -41,7 +53,7 @@ class StudyViewModel : ViewModel() {
                 } catch (e: IOException) {
                     delay(POLL_INTERVAL_MS) // network hiccup right at submit time - retry
                 } catch (e: HttpException) {
-                    _uiState.value = UiState.Error(e.message() ?: "알 수 없는 오류가 발생했습니다")
+                    _uiState.value = UiState.Error(e.userMessage())
                     return@launch
                 }
             }
@@ -63,8 +75,8 @@ class StudyViewModel : ViewModel() {
             } catch (e: IOException) {
                 continue // network hiccup - the server-side job is unaffected, keep trying
             } catch (e: HttpException) {
-                if (e.code() == 502) {
-                    _uiState.value = UiState.Error("번역 처리 중 오류가 발생했습니다: ${e.message()}")
+                if (e.code() == 422 || e.code() == 502) {
+                    _uiState.value = UiState.Error(e.userMessage())
                     return
                 }
                 continue

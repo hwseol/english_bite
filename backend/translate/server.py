@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from pipeline import extract_video_id, process_video
+from pipeline import UserFacingError, extract_video_id, process_video
 
 CACHE_DIR = Path(__file__).parent / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
@@ -14,7 +14,7 @@ app = FastAPI(title="EnglishBite ingest API")
 
 _lock = threading.Lock()
 _in_progress: set[str] = set()
-_errors: dict[str, str] = {}
+_errors: dict[str, tuple[int, str]] = {}
 
 
 class IngestRequest(BaseModel):
@@ -29,9 +29,12 @@ def _run_ingest(url: str, video_id: str):
     try:
         result = process_video(url)
         cache_path(video_id).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    except UserFacingError as e:
+        with _lock:
+            _errors[video_id] = (422, str(e))
     except Exception as e:
         with _lock:
-            _errors[video_id] = str(e)
+            _errors[video_id] = (502, f"번역 처리 중 문제가 발생했어요: {e}")
     finally:
         with _lock:
             _in_progress.discard(video_id)
@@ -73,8 +76,8 @@ def get_video(video_id: str):
 
     with _lock:
         if video_id in _errors:
-            detail = _errors.pop(video_id)
-            raise HTTPException(status_code=502, detail=f"Failed to process video: {detail}")
+            status_code, detail = _errors.pop(video_id)
+            raise HTTPException(status_code=status_code, detail=detail)
         if video_id in _in_progress:
             return {"status": "processing", "video_id": video_id}
 
