@@ -56,7 +56,7 @@ fun HomeScreen(
             enabled = url.isNotBlank() && !isLoading,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (isLoading) "처리 중... (처음 보는 영상은 몇 분 걸릴 수 있어요)" else "학습 시작")
+            Text(if (isLoading) "처리 중... (화면을 꺼두셔도 계속 진행돼요)" else "학습 시작")
         }
 
         if (isLoading) {

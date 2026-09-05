@@ -7,8 +7,17 @@ data class Sentence(
     val ko: String
 )
 
+/** "processing" while a fresh video is still being translated server-side, "done" once
+ * sentences/sentence_count are populated (either just-finished or served from cache). */
+data class IngestResponse(
+    val status: String,
+    val cached: Boolean? = null,
+    val video_id: String,
+    val sentence_count: Int? = null,
+    val sentences: List<Sentence>? = null
+)
+
 data class VideoResult(
-    val cached: Boolean,
     val video_id: String,
     val sentence_count: Int,
     val sentences: List<Sentence>

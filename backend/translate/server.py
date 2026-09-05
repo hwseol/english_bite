@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +12,10 @@ CACHE_DIR.mkdir(exist_ok=True)
 
 app = FastAPI(title="EnglishBite ingest API")
 
+_lock = threading.Lock()
+_in_progress: set[str] = set()
+_errors: dict[str, str] = {}
+
 
 class IngestRequest(BaseModel):
     url: str
@@ -20,8 +25,25 @@ def cache_path(video_id: str) -> Path:
     return CACHE_DIR / f"{video_id}.json"
 
 
+def _run_ingest(url: str, video_id: str):
+    try:
+        result = process_video(url)
+        cache_path(video_id).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        with _lock:
+            _errors[video_id] = str(e)
+    finally:
+        with _lock:
+            _in_progress.discard(video_id)
+
+
 @app.post("/videos")
 def ingest_video(req: IngestRequest):
+    """Kick off ingestion and return immediately - the client polls
+    GET /videos/{video_id} for the result. A translation run can take
+    minutes, which is too long for a single held-open connection to
+    survive a phone's screen sleeping/backgrounding or a tunnel's
+    proxy timeout."""
     try:
         video_id = extract_video_id(req.url)
     except ValueError as e:
@@ -29,23 +51,34 @@ def ingest_video(req: IngestRequest):
 
     path = cache_path(video_id)
     if path.exists():
-        return {"cached": True, **json.loads(path.read_text(encoding="utf-8"))}
+        return {"status": "done", "cached": True, **json.loads(path.read_text(encoding="utf-8"))}
 
-    try:
-        result = process_video(req.url)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to process video: {e}")
+    with _lock:
+        already_running = video_id in _in_progress
+        _errors.pop(video_id, None)
+        if not already_running:
+            _in_progress.add(video_id)
 
-    path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"cached": False, **result}
+    if not already_running:
+        threading.Thread(target=_run_ingest, args=(req.url, video_id), daemon=True).start()
+
+    return {"status": "processing", "video_id": video_id}
 
 
 @app.get("/videos/{video_id}")
 def get_video(video_id: str):
     path = cache_path(video_id)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Not processed yet")
-    return json.loads(path.read_text(encoding="utf-8"))
+    if path.exists():
+        return {"status": "done", "cached": True, **json.loads(path.read_text(encoding="utf-8"))}
+
+    with _lock:
+        if video_id in _errors:
+            detail = _errors.pop(video_id)
+            raise HTTPException(status_code=502, detail=f"Failed to process video: {detail}")
+        if video_id in _in_progress:
+            return {"status": "processing", "video_id": video_id}
+
+    raise HTTPException(status_code=404, detail="Not found - submit it via POST /videos first")
 
 
 @app.get("/health")

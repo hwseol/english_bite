@@ -5,20 +5,25 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 import java.util.concurrent.TimeUnit
 
 interface IngestApi {
     @POST("videos")
-    suspend fun ingestVideo(@Body request: IngestRequest): VideoResult
+    suspend fun ingestVideo(@Body request: IngestRequest): IngestResponse
+
+    @GET("videos/{videoId}")
+    suspend fun getVideo(@Path("videoId") videoId: String): IngestResponse
 }
 
 object ApiClient {
-    // Talk to the backend over "adb reverse tcp:8000 tcp:8000", which tunnels
-    // the device's own localhost:8000 to the host machine's localhost:8000
-    // over the USB/adb connection. Works the same way for the emulator and a
-    // real device, and sidesteps needing them on the same Wi-Fi/LAN.
-    private const val BASE_URL = "http://127.0.0.1:8000/"
+    // TEMPORARY: a Cloudflare quick tunnel (`cloudflared tunnel --url http://localhost:8000`)
+    // pointed at the backend running on the dev machine. This URL is random and changes every
+    // time the tunnel is restarted - swap it here when that happens. Once real hosting (AWS,
+    // pending account verification) is up, replace this with that stable URL.
+    private const val BASE_URL = "https://reader-results-friend-lease.trycloudflare.com/"
 
     val ingestApi: IngestApi by lazy {
         val logging = HttpLoggingInterceptor().apply {
@@ -26,10 +31,12 @@ object ApiClient {
         }
         val client = OkHttpClient.Builder()
             .addInterceptor(logging)
-            // first-time ingest can take a few minutes (model load + translation)
+            // Every request (submit or poll) now returns almost immediately - the actual
+            // translation work happens server-side in a background thread, so there's no
+            // reason for any single call to hold a connection open for minutes anymore.
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(300, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
             .build()
 
         Retrofit.Builder()

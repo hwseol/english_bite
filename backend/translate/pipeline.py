@@ -61,6 +61,12 @@ def cues_to_sentences(cues):
         full_text += text
         char_map.append((char_start, len(full_text), cue["start"], cue["start"] + cue["duration"]))
 
+    def interpolate(char_pos, cs, ce, ts, te):
+        if ce <= cs:
+            return ts
+        frac = max(0.0, min(1.0, (char_pos - cs) / (ce - cs)))
+        return ts + frac * (te - ts)
+
     sentences = []
     pos = 0
     for raw in _segmenter.segment(full_text):
@@ -73,12 +79,17 @@ def cues_to_sentences(cues):
         start_char, end_char = idx, idx + len(s)
         pos = end_char
 
+        # Snapping to the whole span of whichever cue a sentence touches makes
+        # the marked end time run late (a cue keeps going after this sentence's
+        # last character, into the next sentence) - that's what made the Korean
+        # subtitle visibly lag behind the spoken audio. Interpolate linearly
+        # within the boundary cue's time span by character position instead.
         seg_start = seg_end = None
         for cs, ce, ts, te in char_map:
             if ce > start_char and seg_start is None:
-                seg_start = ts
+                seg_start = interpolate(start_char, cs, ce, ts, te)
             if cs < end_char:
-                seg_end = te
+                seg_end = interpolate(end_char, cs, ce, ts, te)
         sentences.append({"text": s, "start": seg_start, "end": seg_end})
 
     return sentences
