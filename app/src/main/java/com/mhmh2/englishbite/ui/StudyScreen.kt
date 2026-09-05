@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.os.Build
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -11,7 +13,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -98,6 +102,15 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            act.window.attributes = act.window.attributes.apply {
+                layoutInDisplayCutoutMode = if (enabled) {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                } else {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+                }
+            }
+        }
     }
 
     DisposableEffect(Unit) {
@@ -108,7 +121,15 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
         if (isFullscreen) setFullscreen(false) else onBack()
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // Collapses to zero automatically once the bars are hidden in fullscreen, and gives the
+    // video/subtitles a bit of breathing room under the status bar otherwise - the previous
+    // Scaffold-based padding was computed but never actually applied to this screen.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
         Box(
             modifier = if (isFullscreen) {
                 Modifier.fillMaxSize()
@@ -122,11 +143,12 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                     YouTubePlayerView(ctx).apply {
                         lifecycleOwner.lifecycle.addObserver(this)
                         enableAutomaticInitialization = false
+                        // Only suppress end-screen related-video suggestions - leave captions,
+                        // annotations, and everything else at YouTube's normal defaults so its
+                        // native controls (including the CC toggle) work as expected.
                         val options = IFramePlayerOptions.Builder(ctx)
                             .controls(1)
                             .rel(0)
-                            .ivLoadPolicy(3)
-                            .ccLoadPolicy(0)
                             .build()
                         initialize(object : AbstractYouTubePlayerListener() {
                             override fun onReady(youTubePlayer: YouTubePlayer) {

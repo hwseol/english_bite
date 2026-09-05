@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -33,9 +34,10 @@ fun HomeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 28.dp)
     ) {
-        Spacer(Modifier.height(72.dp))
+        Spacer(Modifier.height(40.dp))
 
         Text(
             text = "English",
@@ -75,7 +77,7 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             Text(
-                if (isLoading) "처리 중... (화면을 꺼두셔도 계속 진행돼요)" else "학습 시작",
+                if (isLoading) "처리 중..." else "학습 시작",
                 style = MaterialTheme.typography.labelLarge
             )
         }

@@ -6,7 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -24,7 +24,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             EnglishBiteTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                // No Scaffold - StudyScreen needs to control its own insets (none while
+                // fullscreen, a status-bar gap otherwise), which a shared Scaffold padding
+                // can't express since it doesn't know about that internal toggle.
+                Surface(modifier = Modifier.fillMaxSize()) {
                     val state by viewModel.uiState.collectAsState()
 
                     when (val current = state) {
