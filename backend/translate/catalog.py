@@ -9,7 +9,7 @@ Usage:
 """
 import json
 import sys
-from datetime import date
+import time
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
@@ -21,7 +21,11 @@ CHANNELS = {
 
 MAX_DURATION_SECONDS = 20 * 60  # longer videos are skipped rather than downloaded and cut,
                                   # consistent with never storing/re-encoding video ourselves
-RECENT_CHECK_COUNT = 15  # how many of each channel's newest uploads to inspect per run
+RECENT_CHECK_COUNT = 40  # how many of each channel's newest uploads to inspect per run -
+                          # CNN/BBC post many times a day, 15 was missing same-day videos
+WINDOW_SECONDS = 24 * 60 * 60  # a rolling 24h window by absolute timestamp, not a calendar-date
+                                 # string match - upload_date's timezone vs. the server's local
+                                 # date was silently dropping videos right at the day boundary
 
 CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
@@ -38,7 +42,7 @@ def fetch_video_details(video_id: str) -> dict:
 
 
 def collect_today() -> list[dict]:
-    today = date.today().strftime("%Y%m%d")
+    cutoff = time.time() - WINDOW_SECONDS
     results = []
     for channel_name, url in CHANNELS.items():
         print(f"[{channel_name}] checking latest {RECENT_CHECK_COUNT} uploads...", flush=True)
@@ -50,8 +54,11 @@ def collect_today() -> list[dict]:
                 print(f"  [skip] {video_id}: {e}")
                 continue
 
-            if info.get("upload_date") != today:
-                continue
+            timestamp = info.get("timestamp") or 0
+            if timestamp < cutoff:
+                # Uploads list is newest-first, so nothing after this is in the window either.
+                print(f"  ...older than 24h, stopping this channel")
+                break
             duration = info.get("duration") or 0
             if duration > MAX_DURATION_SECONDS:
                 print(f"  [skip] {video_id} too long ({duration}s): {info.get('title')}")
@@ -66,7 +73,7 @@ def collect_today() -> list[dict]:
                 "view_count": info.get("view_count") or 0,
                 "duration": duration,
                 "upload_date": info.get("upload_date"),
-                "timestamp": info.get("timestamp") or 0,
+                "timestamp": timestamp,
             })
             print(f"  [today] {video_id} ({duration}s, {info.get('view_count')} views): {info.get('title')}")
 

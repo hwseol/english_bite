@@ -51,6 +51,17 @@ private fun formatDuration(seconds: Int): String {
     return "%d:%02d".format(m, s)
 }
 
+private fun formatUploadTime(unixTimestamp: Long): String {
+    if (unixTimestamp <= 0) return ""
+    val ageMinutes = (System.currentTimeMillis() / 1000 - unixTimestamp) / 60
+    return when {
+        ageMinutes < 1 -> "방금 전"
+        ageMinutes < 60 -> "${ageMinutes}분 전"
+        ageMinutes < 24 * 60 -> "${ageMinutes / 60}시간 전"
+        else -> "${ageMinutes / (24 * 60)}일 전"
+    }
+}
+
 @Composable
 fun CatalogScreen(
     state: CatalogState,
@@ -221,7 +232,7 @@ private fun CatalogCard(item: CatalogItem, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${item.channel} · ${formatViewCount(item.view_count)}",
+                    text = "${item.channel} · ${formatViewCount(item.view_count)} · ${formatUploadTime(item.timestamp)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
