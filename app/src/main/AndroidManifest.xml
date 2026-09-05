@@ -13,6 +13,7 @@
         android:theme="@style/Theme.EnglishBite">
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="true"
             android:theme="@style/Theme.EnglishBite">
             <intent-filter>
