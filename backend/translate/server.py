@@ -9,6 +9,7 @@ from pipeline import UserFacingError, extract_video_id, process_video
 
 CACHE_DIR = Path(__file__).parent / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
+CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
 app = FastAPI(title="EnglishBite ingest API")
 
@@ -82,6 +83,25 @@ def get_video(video_id: str):
             return {"status": "processing", "video_id": video_id}
 
     raise HTTPException(status_code=404, detail="Not found - submit it via POST /videos first")
+
+
+@app.get("/catalog")
+def get_catalog(channel: str | None = None):
+    """Today's CNN/BBC uploads, as collected by catalog.py. Each entry's video_id is only
+    included once it's actually ready to watch (already run through /videos), so tapping a
+    catalog card in the app is always an instant "done" - never a first-time ingest wait."""
+    if not CATALOG_PATH.exists():
+        return []
+
+    items = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    if channel:
+        items = [i for i in items if i["channel"].lower() == channel.lower()]
+
+    ready = []
+    for item in items:
+        if cache_path(item["video_id"]).exists():
+            ready.append(item)
+    return ready
 
 
 @app.get("/health")

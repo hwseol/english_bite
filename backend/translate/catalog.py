@@ -27,13 +27,13 @@ CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
 
 def fetch_recent_video_ids(channel_url: str, count: int) -> list[str]:
-    with YoutubeDL({"extract_flat": "in_playlist", "playlistend": count, "quiet": True}) as ydl:
+    with YoutubeDL({"extract_flat": "in_playlist", "playlistend": count, "quiet": True, "no_warnings": True}) as ydl:
         info = ydl.extract_info(channel_url, download=False)
     return [e["id"] for e in info.get("entries", []) if e.get("id")]
 
 
 def fetch_video_details(video_id: str) -> dict:
-    with YoutubeDL({"quiet": True}) as ydl:
+    with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
         return ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
 
 
@@ -66,6 +66,7 @@ def collect_today() -> list[dict]:
                 "view_count": info.get("view_count") or 0,
                 "duration": duration,
                 "upload_date": info.get("upload_date"),
+                "timestamp": info.get("timestamp") or 0,
             })
             print(f"  [today] {video_id} ({duration}s, {info.get('view_count')} views): {info.get('title')}")
 

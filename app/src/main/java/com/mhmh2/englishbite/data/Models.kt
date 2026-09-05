@@ -24,3 +24,14 @@ data class VideoResult(
 )
 
 data class IngestRequest(val url: String)
+
+data class CatalogItem(
+    val video_id: String,
+    val title: String,
+    val channel: String,
+    val thumbnail: String?,
+    val view_count: Long,
+    val duration: Int,
+    val upload_date: String,
+    val timestamp: Long = 0
+)

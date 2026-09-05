@@ -56,4 +56,5 @@ dependencies {
     implementation(libs.okhttp.logging.interceptor)
     implementation(libs.gson)
     implementation(libs.youtube.player.core)
+    implementation(libs.coil.compose)
 }

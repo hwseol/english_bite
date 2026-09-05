@@ -8,6 +8,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
 interface IngestApi {
@@ -16,6 +17,9 @@ interface IngestApi {
 
     @GET("videos/{videoId}")
     suspend fun getVideo(@Path("videoId") videoId: String): IngestResponse
+
+    @GET("catalog")
+    suspend fun getCatalog(@Query("channel") channel: String? = null): List<CatalogItem>
 }
 
 object ApiClient {

@@ -2,6 +2,7 @@ package com.mhmh2.englishbite
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -9,7 +10,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.mhmh2.englishbite.ui.CatalogScreen
+import com.mhmh2.englishbite.ui.CatalogViewModel
 import com.mhmh2.englishbite.ui.HomeScreen
 import com.mhmh2.englishbite.ui.StudyScreen
 import com.mhmh2.englishbite.ui.StudyViewModel
@@ -17,29 +23,49 @@ import com.mhmh2.englishbite.ui.UiState
 import com.mhmh2.englishbite.ui.theme.EnglishBiteTheme
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: StudyViewModel by viewModels()
+    private val studyViewModel: StudyViewModel by viewModels()
+    private val catalogViewModel: CatalogViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             EnglishBiteTheme {
-                // No Scaffold - StudyScreen needs to control its own insets (none while
-                // fullscreen, a status-bar gap otherwise), which a shared Scaffold padding
-                // can't express since it doesn't know about that internal toggle.
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    val state by viewModel.uiState.collectAsState()
+                    val ingestState by studyViewModel.uiState.collectAsState()
+                    var showManualInput by remember { mutableStateOf(false) }
 
-                    when (val current = state) {
+                    when (val current = ingestState) {
                         is UiState.Success -> StudyScreen(
                             result = current.result,
-                            onBack = { viewModel.reset() }
+                            onBack = { studyViewModel.reset() }
                         )
-                        else -> HomeScreen(
-                            isLoading = state is UiState.Loading,
-                            errorMessage = (state as? UiState.Error)?.message,
-                            onSubmit = { url -> viewModel.submitUrl(url) }
-                        )
+
+                        else -> {
+                            if (showManualInput) {
+                                BackHandler { showManualInput = false }
+                                HomeScreen(
+                                    isLoading = ingestState is UiState.Loading,
+                                    errorMessage = (ingestState as? UiState.Error)?.message,
+                                    onSubmit = { url -> studyViewModel.submitUrl(url) }
+                                )
+                            } else {
+                                val catalogState by catalogViewModel.state.collectAsState()
+                                val channelFilter by catalogViewModel.channelFilter.collectAsState()
+                                val sort by catalogViewModel.sort.collectAsState()
+                                CatalogScreen(
+                                    state = catalogState,
+                                    channelFilter = channelFilter,
+                                    sort = sort,
+                                    onChannelFilterChange = catalogViewModel::setChannelFilter,
+                                    onSortChange = catalogViewModel::setSort,
+                                    onSelect = { item ->
+                                        studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
+                                    },
+                                    onManualUrlEntry = { showManualInput = true }
+                                )
+                            }
+                        }
                     }
                 }
             }
