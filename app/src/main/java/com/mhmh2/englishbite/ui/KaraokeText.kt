@@ -9,49 +9,35 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import com.mhmh2.englishbite.data.Word
 
 /**
- * Renders [text] word-by-word, coloring everything up to [progress] (0f..1f, position within
- * the sentence's time window) as already-spoken. Word-level only - we don't have per-word
- * timestamps from the backend, so word boundaries are estimated by character-position share
- * of the sentence, which is close enough for a karaoke-style following aid.
+ * Renders [words] with each one colored as already-spoken once playback passes its own real
+ * start timestamp - these come straight from YouTube's own per-word caption alignment (see
+ * pipeline.py's fetch_caption_words), not an estimate, so pacing that isn't flat and even
+ * (interviews, fast talkers) tracks as accurately as the source captions do.
  */
 @Composable
 fun KaraokeText(
-    text: String,
-    progress: Float,
+    words: List<Word>,
+    currentSecond: Double,
     style: TextStyle,
     highlightColor: Color,
     modifier: Modifier = Modifier,
-    baseColor: Color = LocalContentColor.current,
-    maxLines: Int = Int.MAX_VALUE
+    baseColor: Color = LocalContentColor.current
 ) {
-    val words = remember(text) { text.split(" ") }
-    val totalChars = text.length.coerceAtLeast(1)
-    val highlightChars = (progress.coerceIn(0f, 1f) * totalChars)
-
-    val annotated = remember(words, highlightChars) {
+    val annotated = remember(words, currentSecond) {
         buildAnnotatedString {
-            var consumed = 0
             words.forEachIndexed { index, word ->
-                val wordEnd = consumed + word.length
-                val spoken = wordEnd <= highlightChars
+                val spoken = currentSecond >= word.start
                 withStyle(SpanStyle(color = if (spoken) highlightColor else baseColor)) {
-                    append(word)
+                    append(word.text)
                 }
                 if (index != words.lastIndex) append(" ")
-                consumed = wordEnd + 1
             }
         }
     }
 
-    Text(
-        text = annotated,
-        style = style,
-        modifier = modifier,
-        maxLines = maxLines,
-        overflow = TextOverflow.Ellipsis
-    )
+    Text(text = annotated, style = style, modifier = modifier)
 }

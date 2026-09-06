@@ -95,7 +95,7 @@ fun CatalogScreen(
                     colors = chipColors()
                 )
             }
-            items(listOf("CNN", "BBC News")) { channel ->
+            items(listOf("CNN", "BBC News", "Bloomberg")) { channel ->
                 FilterChip(
                     selected = channelFilter == channel,
                     onClick = { onChannelFilterChange(channel) },
@@ -148,7 +148,7 @@ fun CatalogScreen(
                 if (state.items.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            "오늘 준비된 영상이 아직 없어요",
+                            "아직 준비된 영상이 없어요",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

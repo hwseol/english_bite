@@ -96,5 +96,6 @@ class StudyViewModel : ViewModel() {
 private fun IngestResponse.toVideoResult() = VideoResult(
     video_id = video_id,
     sentence_count = sentence_count ?: 0,
-    sentences = sentences.orEmpty()
+    sentences = sentences.orEmpty(),
+    idioms = idioms.orEmpty()
 )

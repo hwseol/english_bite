@@ -27,7 +27,7 @@ object ApiClient {
     // pointed at the backend running on the dev machine. This URL is random and changes every
     // time the tunnel is restarted - swap it here when that happens. Once real hosting (AWS,
     // pending account verification) is up, replace this with that stable URL.
-    private const val BASE_URL = "https://reader-results-friend-lease.trycloudflare.com/"
+    private const val BASE_URL = "https://those-bits-amp-achieving.trycloudflare.com/"
 
     val ingestApi: IngestApi by lazy {
         val logging = HttpLoggingInterceptor().apply {

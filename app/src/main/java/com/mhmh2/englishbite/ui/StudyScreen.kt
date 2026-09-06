@@ -7,9 +7,13 @@ import android.content.pm.ActivityInfo
 import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,10 +22,14 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,19 +43,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.mhmh2.englishbite.data.Idiom
 import com.mhmh2.englishbite.data.Sentence
 import com.mhmh2.englishbite.data.VideoResult
+import com.mhmh2.englishbite.data.Word
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
@@ -79,6 +92,70 @@ private fun subtitleStyles(english: String, korean: String): SubtitleStyles {
     }
 }
 
+/** A small tappable pill for the current sentence's idiom/expression, if it has one -
+ * at most 1-2 per ~8-sentence stretch of the video, often none. Tapping expands a card
+ * with the Korean explanation and a copy-to-clipboard action; tapping again collapses it. */
+@Composable
+private fun IdiomBadge(idiom: Idiom, expanded: Boolean, onToggle: () -> Unit, onDarkBackground: Boolean) {
+    val clipboard = LocalClipboardManager.current
+    val pillBg = MaterialTheme.colorScheme.primary.copy(alpha = if (onDarkBackground) 0.28f else 0.14f)
+    val noteBg = if (onDarkBackground) Color.Black.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceVariant
+    val noteColor = if (onDarkBackground) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant
+
+    Column(modifier = Modifier.padding(bottom = 6.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(pillBg)
+                .clickable { onToggle() }
+                .padding(horizontal = 10.dp, vertical = 5.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Lightbulb,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(15.dp)
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = idiom.phrase,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        AnimatedVisibility(visible = expanded) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(noteBg)
+                    .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 2.dp)
+            ) {
+                Text(
+                    text = idiom.note_ko,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = noteColor,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = { clipboard.setText(AnnotatedString("${idiom.phrase}\n${idiom.note_ko}")) },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "복사",
+                        tint = noteColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -89,19 +166,36 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
     var currentSecond by remember { mutableFloatStateOf(0f) }
     var isFullscreen by remember { mutableStateOf(false) }
 
-    val currentSentence: Sentence? = remember(currentSecond, result) {
+    // The last sentence to have started, not "the sentence whose own [start, end) contains
+    // now" - a strict end-time cutoff left the subtitle blank for a visibly distracting beat
+    // in any gap between sentences (a pause, or just the boundary between two adjacent ones).
+    // Keeping the previous one on screen until the next one actually starts reads much better.
+    val currentIndex: Int = remember(currentSecond, result) {
         val t = currentSecond.toDouble()
-        result.sentences.firstOrNull { t >= it.start && t < it.end }
+        result.sentences.indexOfLast { t >= it.start }
     }
-    val progress = remember(currentSecond, currentSentence) {
-        val s = currentSentence ?: return@remember 0f
+    val currentSentence: Sentence? = currentIndex.takeIf { it >= 0 }?.let { result.sentences[it] }
+    val currentIdiom: Idiom? = remember(currentIndex, result) {
+        if (currentIndex < 0) null else result.idioms.firstOrNull { it.sentence_index == currentIndex + 1 }
+    }
+    var idiomExpanded by remember(currentIdiom?.sentence_index) { mutableStateOf(false) }
+
+    // Real per-word timestamps come from the backend (YouTube's own ASR alignment) for any
+    // freshly-processed video. A sentence cached before that existed has an empty `words` list -
+    // approximate evenly by character share for those rather than show no highlight at all.
+    val displayWords: List<Word> = remember(currentSentence) {
+        val s = currentSentence ?: return@remember emptyList()
+        if (!s.words.isNullOrEmpty()) return@remember s.words
+        val tokens = s.text.split(" ").filter { it.isNotEmpty() }
+        val totalChars = tokens.sumOf { it.length + 1 }.coerceAtLeast(1)
         val span = (s.end - s.start).coerceAtLeast(0.001)
-        val linear = (currentSecond - s.start) / span
-        // Character-count-proportional timing (no real per-word timestamps exist) tends to
-        // read as lagging the actual speech - people plainly speak the back half of a sentence
-        // a bit faster than a flat split predicts. A fixed lead factor is a rough fix, not a
-        // real one; true per-word sync would need forced alignment against the audio.
-        (linear * 1.25).toFloat()
+        var consumed = 0
+        tokens.map { token ->
+            val start = s.start + span * consumed / totalChars
+            consumed += token.length + 1
+            val end = s.start + span * consumed / totalChars
+            Word(token, start, end)
+        }
     }
 
     fun setFullscreen(enabled: Boolean) {
@@ -110,7 +204,12 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
         act.requestedOrientation = if (enabled) {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            // UNSPECIFIED just meant "no preference" - if the phone was still physically held
+            // sideways, the screen stayed landscape while the layout below switched back to its
+            // portrait-shaped formula (fillMaxWidth * 9/16), which overflows a landscape-height
+            // screen and gets clipped instead of shrinking. Force portrait so exiting fullscreen
+            // always lands back in the layout it's actually built for.
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
         val controller = WindowCompat.getInsetsController(act.window, view)
         if (enabled) {
@@ -216,20 +315,20 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                         .background(Color.Black.copy(alpha = 0.6f))
                         .padding(horizontal = 24.dp, vertical = 10.dp)
                 ) {
+                    currentIdiom?.let { idiom ->
+                        IdiomBadge(idiom, idiomExpanded, { idiomExpanded = !idiomExpanded }, onDarkBackground = true)
+                    }
                     KaraokeText(
-                        text = currentSentence.text,
-                        progress = progress,
+                        words = displayWords,
+                        currentSecond = currentSecond.toDouble(),
                         style = styles.english,
                         highlightColor = MaterialTheme.colorScheme.primary,
-                        baseColor = Color.White,
-                        maxLines = 2
+                        baseColor = Color.White
                     )
                     Text(
                         text = currentSentence.ko,
                         style = styles.korean,
                         color = Color.White.copy(alpha = 0.8f),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
@@ -245,20 +344,20 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                 if (currentSentence != null) {
                     val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     Column {
+                        currentIdiom?.let { idiom ->
+                            IdiomBadge(idiom, idiomExpanded, { idiomExpanded = !idiomExpanded }, onDarkBackground = false)
+                        }
                         KaraokeText(
-                            text = currentSentence.text,
-                            progress = progress,
+                            words = displayWords,
+                            currentSecond = currentSecond.toDouble(),
                             style = styles.english,
                             highlightColor = MaterialTheme.colorScheme.primary,
-                            baseColor = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 3
+                            baseColor = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = currentSentence.ko,
                             style = styles.korean,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 12.dp)
                         )
                     }
