@@ -297,6 +297,13 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
     }
     var idiomExpanded by remember(currentIdiom?.sentence_index) { mutableStateOf(false) }
 
+    // Pause while reading the explanation, resume on closing it - otherwise the video (and
+    // the sentence the badge is even about) keeps moving on while it's being read.
+    fun toggleIdiom() {
+        idiomExpanded = !idiomExpanded
+        if (idiomExpanded) youTubePlayer?.pause() else youTubePlayer?.play()
+    }
+
     // Real per-word timestamps come from the backend (YouTube's own ASR alignment) for any
     // freshly-processed video. A sentence cached before that existed has an empty `words` list -
     // approximate evenly by character share for those rather than show no highlight at all.
@@ -463,7 +470,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                         .padding(horizontal = 24.dp, vertical = 10.dp)
                 ) {
                     currentIdiom?.let { idiom ->
-                        IdiomBadge(idiom, idiomExpanded, { idiomExpanded = !idiomExpanded }, onDarkBackground = true)
+                        IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = true)
                     }
                     RepeatableSentence(
                         words = displayWords,
@@ -531,7 +538,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                     val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     Column {
                         currentIdiom?.let { idiom ->
-                            IdiomBadge(idiom, idiomExpanded, { idiomExpanded = !idiomExpanded }, onDarkBackground = false)
+                            IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = false)
                         }
                         RepeatableSentence(
                             words = displayWords,
