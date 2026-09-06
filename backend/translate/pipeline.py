@@ -12,7 +12,7 @@ import yt_dlp
 from faster_whisper import WhisperModel
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-from idioms import extract_idioms
+from idioms import extract_idioms, _phrase_appears_in_sentence
 
 TRANSLATE_MODEL_NAME = "NHNDQ/nllb-finetuned-en2ko"
 WHISPER_MODEL_NAME = "small"
@@ -106,7 +106,12 @@ def words_to_sentences(words):
     """Build one continuous transcript by joining every word, with a parallel char-range map
     back to each word's real timestamp. Splitting into sentences this way gives each sentence's
     span, and each word's karaoke highlight time within it, directly from the source timing -
-    no interpolation needed now that fetch_caption_words already resolved per-word timestamps."""
+    no interpolation needed now that fetch_caption_words already resolved per-word timestamps.
+
+    Returns full linguistic sentences (pysbd's boundaries), not yet cut down for on-screen
+    display - see split_sentences_for_display for that. Idiom extraction wants the full
+    sentence for context; showing every word of a 200-character sentence in one go doesn't
+    work on a phone screen, which is a display concern, not a text-splitting one."""
     full_text = ""
     char_map = []  # (char_start, char_end), index-aligned with `words`
 
@@ -146,13 +151,44 @@ def words_to_sentences(words):
             "words": sentence_words,
         })
 
-    return [piece for sentence in sentences for piece in _split_long_sentence(sentence)]
+    return sentences
 
 
 MAX_SENTENCE_CHARS = 110  # a sentence longer than this on screen forces the subtitle font
                           # down to its smallest tier - split it into shorter, still fully
                           # accurately-timed pieces instead (real per-word timestamps make this
                           # exact, not a guess).
+
+
+def split_sentences_for_display(sentences: list[dict]) -> tuple[list[dict], dict[int, list[int]]]:
+    """Cuts overly-long linguistic sentences down into screen-sized pieces for translation and
+    display. Returns the flat display-ready list plus a map from each original (1-based)
+    sentence index to the (1-based) display indices it became, so idiom_analysis results -
+    extracted from the pre-split sentences, where a phrase's surrounding context is still
+    intact - can be retargeted at whichever piece actually contains the phrase."""
+    display_sentences = []
+    index_map = {}
+    for i, sentence in enumerate(sentences, start=1):
+        new_indices = []
+        for piece in _split_long_sentence(sentence):
+            display_sentences.append(piece)
+            new_indices.append(len(display_sentences))
+        index_map[i] = new_indices
+    return display_sentences, index_map
+
+
+def _remap_idiom_indices(idioms_raw: list[dict], display_sentences: list[dict], index_map: dict[int, list[int]]) -> list[dict]:
+    remapped = []
+    for item in idioms_raw:
+        candidates = index_map.get(item["sentence_index"], [])
+        if not candidates:
+            continue
+        target = next(
+            (i for i in candidates if _phrase_appears_in_sentence(item["phrase"], display_sentences[i - 1]["text"])),
+            candidates[0],
+        )
+        remapped.append({**item, "sentence_index": target})
+    return remapped
 
 
 def _split_long_sentence(sentence: dict) -> list[dict]:
@@ -224,16 +260,23 @@ def process_video(url: str):
     words = fetch_caption_words(video_id)
     sentences = words_to_sentences(words)
 
-    translations = translate_batch([s["text"] for s in sentences])
-    for sentence, ko in zip(sentences, translations):
+    # Idiom extraction runs on the full, un-split sentences - a chunk of complete sentences
+    # gives the model real context to judge from, whereas a chunk of screen-sized fragments
+    # (some just a few words) reads more like a word-association test and picks weaker phrases.
+    idioms_raw = extract_idioms(sentences)
+
+    display_sentences, index_map = split_sentences_for_display(sentences)
+
+    translations = translate_batch([s["text"] for s in display_sentences])
+    for sentence, ko in zip(display_sentences, translations):
         sentence["ko"] = ko
 
-    idioms = extract_idioms(sentences)
+    idioms = _remap_idiom_indices(idioms_raw, display_sentences, index_map)
 
     return {
         "video_id": video_id,
-        "sentence_count": len(sentences),
-        "sentences": sentences,
+        "sentence_count": len(display_sentences),
+        "sentences": display_sentences,
         "idioms": idioms,
     }
 
