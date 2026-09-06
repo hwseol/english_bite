@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +31,9 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,6 +65,7 @@ import com.mhmh2.englishbite.data.Idiom
 import com.mhmh2.englishbite.data.Sentence
 import com.mhmh2.englishbite.data.VideoResult
 import com.mhmh2.englishbite.data.Word
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
@@ -86,9 +91,12 @@ private data class SubtitleStyles(val english: TextStyle, val korean: TextStyle)
 private fun subtitleStyles(english: String, korean: String): SubtitleStyles {
     val weight = english.length + korean.length * 1.6
     return when {
-        weight > 220 -> SubtitleStyles(MaterialTheme.typography.bodyMedium, MaterialTheme.typography.bodySmall)
-        weight > 140 -> SubtitleStyles(MaterialTheme.typography.titleLarge, MaterialTheme.typography.bodyMedium)
-        else -> SubtitleStyles(MaterialTheme.typography.headlineMedium, MaterialTheme.typography.bodyLarge)
+        // Bumped up one tier from the original sizing - backend sentences are now capped at
+        // 110 characters (split into pieces if longer, see MAX_SENTENCE_CHARS in pipeline.py),
+        // so the smallest tier is rarer than it used to be and can afford to be bigger too.
+        weight > 220 -> SubtitleStyles(MaterialTheme.typography.titleLarge, MaterialTheme.typography.bodyMedium)
+        weight > 140 -> SubtitleStyles(MaterialTheme.typography.headlineSmall, MaterialTheme.typography.titleMedium)
+        else -> SubtitleStyles(MaterialTheme.typography.headlineLarge, MaterialTheme.typography.titleLarge)
     }
 }
 
@@ -156,6 +164,113 @@ private fun IdiomBadge(idiom: Idiom, expanded: Boolean, onToggle: () -> Unit, on
     }
 }
 
+/** Tapping the line itself also repeats it (seeks back to its start) - on top of the explicit
+ * prev/repeat/next controls below, since the whole point is not needing to aim for a small
+ * button when the sentence you just heard is still in your ear. */
+@Composable
+private fun RepeatableSentence(
+    words: List<Word>,
+    currentSecond: Double,
+    style: TextStyle,
+    highlightColor: Color,
+    baseColor: Color,
+    onRepeat: () -> Unit
+) {
+    KaraokeText(
+        words = words,
+        currentSecond = currentSecond,
+        style = style,
+        highlightColor = highlightColor,
+        baseColor = baseColor,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onRepeat)
+    )
+}
+
+/** Explicit transport controls for stepping between sentences - previous/repeat/next, each
+ * seeking the video and keeping it playing. More discoverable and easier to hit than relying
+ * on tapping text alone, especially for "go back one" which has no text of its own to tap. */
+@Composable
+private fun SentenceNavControls(
+    onPrevious: () -> Unit,
+    onRepeat: () -> Unit,
+    onNext: () -> Unit,
+    tint: Color
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.padding(top = 6.dp)
+    ) {
+        IconButton(onClick = onPrevious, modifier = Modifier.size(34.dp)) {
+            Icon(
+                imageVector = Icons.Default.SkipPrevious,
+                contentDescription = "이전 문장",
+                tint = tint,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        IconButton(onClick = onRepeat, modifier = Modifier.size(34.dp)) {
+            Icon(
+                imageVector = Icons.Default.Replay,
+                contentDescription = "이 문장 다시 듣기",
+                tint = tint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        IconButton(onClick = onNext, modifier = Modifier.size(34.dp)) {
+            Icon(
+                imageVector = Icons.Default.SkipNext,
+                contentDescription = "다음 문장",
+                tint = tint,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
+// Slower only - the point is following speech that's too fast to catch, not speeding
+// anything up. Cycling through this list on tap, rather than a menu, since it's just one
+// control that needs to be reachable one-handed over a video.
+private val PLAYBACK_RATES = listOf(
+    0.5f to PlayerConstants.PlaybackRate.RATE_0_5,
+    0.75f to PlayerConstants.PlaybackRate.RATE_0_75,
+    1f to PlayerConstants.PlaybackRate.RATE_1,
+)
+
+private fun formatRate(rate: Float): String {
+    val number = if (rate == rate.toInt().toFloat()) rate.toInt().toString() else rate.toString()
+    return "${number}x"
+}
+
+/** A speed pill (e.g. "1.25x") that cycles to the next rate in PLAYBACK_RATES on tap - some
+ * speakers are just fast, and someone re-listening to a line via the repeat controls above
+ * might specifically want it slower than the first pass. */
+@Composable
+private fun PlaybackSpeedButton(
+    speedIndex: Int,
+    onCycle: () -> Unit,
+    containerColor: Color = Color.Black.copy(alpha = 0.5f),
+    contentColor: Color = Color.White
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(containerColor)
+            .clickable(onClick = onCycle)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = formatRate(PLAYBACK_RATES[speedIndex].first),
+            color = contentColor,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
 @Composable
 fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -165,6 +280,8 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
 
     var currentSecond by remember { mutableFloatStateOf(0f) }
     var isFullscreen by remember { mutableStateOf(false) }
+    var youTubePlayer by remember { mutableStateOf<YouTubePlayer?>(null) }
+    var speedIndex by remember { mutableStateOf(PLAYBACK_RATES.indexOfFirst { it.first == 1f }) }
 
     // The last sentence to have started, not "the sentence whose own [start, end) contains
     // now" - a strict end-time cutoff left the subtitle blank for a visibly distracting beat
@@ -196,6 +313,24 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
             val end = s.start + span * consumed / totalChars
             Word(token, start, end)
         }
+    }
+
+    // Seeking back to a sentence's start and continuing playback - a quick way to hear/read a
+    // line again (or step to the one before/after it) without hunting for the timeline
+    // scrubber, which is fiddly for a span that might only be a second or two long.
+    fun seekToSentence(index: Int) {
+        val sentence = result.sentences.getOrNull(index) ?: return
+        val player = youTubePlayer ?: return
+        player.seekTo(sentence.start.toFloat())
+        player.play()
+    }
+    fun repeatCurrentSentence() = seekToSentence(currentIndex)
+    fun previousSentence() = seekToSentence(currentIndex - 1)
+    fun nextSentence() = seekToSentence(currentIndex + 1)
+
+    fun cyclePlaybackSpeed() {
+        speedIndex = (speedIndex + 1) % PLAYBACK_RATES.size
+        youTubePlayer?.setPlaybackRate(PLAYBACK_RATES[speedIndex].second)
     }
 
     fun setFullscreen(enabled: Boolean) {
@@ -276,8 +411,9 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                             .rel(0)
                             .build()
                         initialize(object : AbstractYouTubePlayerListener() {
-                            override fun onReady(youTubePlayer: YouTubePlayer) {
-                                youTubePlayer.loadVideo(result.video_id, 0f)
+                            override fun onReady(player: YouTubePlayer) {
+                                youTubePlayer = player
+                                player.loadVideo(result.video_id, 0f)
                             }
 
                             override fun onCurrentSecond(youTubePlayer: YouTubePlayer, second: Float) {
@@ -288,22 +424,33 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                 }
             )
 
-            // Top-end, not bottom-end: YouTube's own control bar already occupies the bottom
-            // edge, and our icon was getting lost against/behind it there.
-            IconButton(
-                onClick = { setFullscreen(!isFullscreen) },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(10.dp)
-                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                    .size(40.dp)
-            ) {
-                Icon(
-                    imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                    contentDescription = if (isFullscreen) "화면 축소" else "화면 크게",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
+            // Only overlaid on the video itself in fullscreen, where it takes up the whole
+            // screen and there's nowhere else to put them. In the small embedded view this
+            // same corner is where YouTube draws its own controls, and the overlay was
+            // intercepting taps meant for those - see the control row below the video instead.
+            if (isFullscreen) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                ) {
+                    PlaybackSpeedButton(speedIndex = speedIndex, onCycle = ::cyclePlaybackSpeed)
+                    IconButton(
+                        onClick = { setFullscreen(!isFullscreen) },
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            .size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FullscreenExit,
+                            contentDescription = "화면 축소",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
             }
 
             if (isFullscreen && currentSentence != null) {
@@ -318,18 +465,57 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                     currentIdiom?.let { idiom ->
                         IdiomBadge(idiom, idiomExpanded, { idiomExpanded = !idiomExpanded }, onDarkBackground = true)
                     }
-                    KaraokeText(
+                    RepeatableSentence(
                         words = displayWords,
                         currentSecond = currentSecond.toDouble(),
                         style = styles.english,
                         highlightColor = MaterialTheme.colorScheme.primary,
-                        baseColor = Color.White
+                        baseColor = Color.White,
+                        onRepeat = ::repeatCurrentSentence
                     )
                     Text(
                         text = currentSentence.ko,
                         style = styles.korean,
                         color = Color.White.copy(alpha = 0.8f),
                         modifier = Modifier.padding(top = 4.dp)
+                    )
+                    SentenceNavControls(
+                        onPrevious = ::previousSentence,
+                        onRepeat = ::repeatCurrentSentence,
+                        onNext = ::nextSentence,
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+
+        if (!isFullscreen) {
+            // Kept off the video surface itself here (unlike in fullscreen) so it doesn't sit
+            // on top of - and block taps on - YouTube's own controls in the small embedded view.
+            Row(
+                horizontalArrangement = Arrangement.End,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            ) {
+                PlaybackSpeedButton(
+                    speedIndex = speedIndex,
+                    onCycle = ::cyclePlaybackSpeed,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = { setFullscreen(true) },
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                        .size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "화면 크게",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -347,18 +533,25 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                         currentIdiom?.let { idiom ->
                             IdiomBadge(idiom, idiomExpanded, { idiomExpanded = !idiomExpanded }, onDarkBackground = false)
                         }
-                        KaraokeText(
+                        RepeatableSentence(
                             words = displayWords,
                             currentSecond = currentSecond.toDouble(),
                             style = styles.english,
                             highlightColor = MaterialTheme.colorScheme.primary,
-                            baseColor = MaterialTheme.colorScheme.onSurface
+                            baseColor = MaterialTheme.colorScheme.onSurface,
+                            onRepeat = ::repeatCurrentSentence
                         )
                         Text(
                             text = currentSentence.ko,
                             style = styles.korean,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 12.dp)
+                        )
+                        SentenceNavControls(
+                            onPrevious = ::previousSentence,
+                            onRepeat = ::repeatCurrentSentence,
+                            onNext = ::nextSentence,
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 } else {
