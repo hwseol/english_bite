@@ -1,11 +1,16 @@
-"""Collect today's short-form CNN/BBC uploads into a catalog the app can browse, instead of
+"""Collect short-form CNN/BBC/Bloomberg uploads into a catalog the app can browse, instead of
 requiring a pasted YouTube URL. No YouTube Data API key needed - yt-dlp reads the same public
 metadata (title, view count, duration, upload date) an official API key would, just via a
 different (widely-used, actively maintained) library.
 
+Each run only scans each channel's last 24h of uploads (see WINDOW_SECONDS) to keep the scan
+fast, but that's just how far back a single run looks for *new* videos - results accumulate
+into catalog.json across runs (this is scheduled every few hours), so the catalog itself holds
+everything ever collected, not only what's within the window right now.
+
 Usage:
-    python catalog.py            # collect + write catalog.json
-    python catalog.py --preseed  # also run each new video through the translation pipeline
+    python catalog.py            # collect + merge into catalog.json
+    python catalog.py --preseed  # also run each newly-found video through the translation pipeline
 """
 import json
 import sys
@@ -17,6 +22,7 @@ from yt_dlp import YoutubeDL
 CHANNELS = {
     "CNN": "https://www.youtube.com/@CNN/videos",
     "BBC News": "https://www.youtube.com/@BBCNews/videos",
+    "Bloomberg": "https://www.youtube.com/@markets/videos",
 }
 
 MAX_DURATION_SECONDS = 20 * 60  # longer videos are skipped rather than downloaded and cut,
@@ -82,11 +88,22 @@ def collect_today() -> list[dict]:
 
 
 if __name__ == "__main__":
-    items = collect_today()
+    new_items = collect_today()
+
+    existing = json.loads(CATALOG_PATH.read_text(encoding="utf-8")) if CATALOG_PATH.exists() else []
+    by_id = {item["video_id"]: item for item in existing}
+    for item in new_items:
+        by_id[item["video_id"]] = item  # refresh view_count etc. if seen again within the window
+
+    items = sorted(by_id.values(), key=lambda v: v["view_count"], reverse=True)
     CATALOG_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n{len(items)} video(s) uploaded today -> {CATALOG_PATH}")
+    print(f"\n{len(new_items)} new video(s) this run, {len(items)} total in catalog -> {CATALOG_PATH}")
 
     if "--preseed" in sys.argv:
+        # Every catalog entry without a cache file yet, not just this run's new discoveries -
+        # preseed.py already skips ones that are already cached, so this is cheap, and it's
+        # what keeps a video from getting silently stuck forever if a run somehow adds it to
+        # catalog.json without also preseeding it (e.g. this script run without --preseed).
         from preseed import preseed
         urls = [f"https://www.youtube.com/watch?v={v['video_id']}" for v in items]
         preseed(urls)

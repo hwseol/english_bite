@@ -1,22 +1,25 @@
 import json
 import re
+import shutil
 import sys
+import tempfile
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 import pysbd
 import torch
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import (
-    NoTranscriptFound,
-    TranscriptsDisabled,
-    VideoUnavailable,
-)
+import yt_dlp
+from faster_whisper import WhisperModel
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
+from idioms import extract_idioms
+
 TRANSLATE_MODEL_NAME = "NHNDQ/nllb-finetuned-en2ko"
+WHISPER_MODEL_NAME = "small"
 
 _tokenizer = None
 _model = None
+_whisper = None
 
 
 class UserFacingError(Exception):
@@ -36,56 +39,86 @@ def extract_video_id(url: str) -> str:
     raise ValueError(f"Could not parse a video ID from URL: {url}")
 
 
-def fetch_caption_cues(video_id: str):
-    api = YouTubeTranscriptApi()
-    try:
-        transcript_list = api.list(video_id)
-    except TranscriptsDisabled:
-        raise UserFacingError("이 영상은 자막이 꺼져 있어 학습에 사용할 수 없어요. 다른 영상을 시도해주세요.")
-    except VideoUnavailable:
-        raise UserFacingError("이 영상을 찾을 수 없어요. 비공개 영상이거나 삭제된 영상일 수 있어요.")
+def load_whisper() -> WhisperModel:
+    global _whisper
+    if _whisper is None:
+        # int8 on CPU (no GPU on this machine) - runs the "small" model at roughly 5x real
+        # time, so a ~15min video transcribes in ~3min. Kept as a long-lived global like the
+        # translator below rather than reloaded per video.
+        _whisper = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
+    return _whisper
 
-    try:
-        transcript = transcript_list.find_manually_created_transcript(["en"])
-    except Exception:
-        try:
-            transcript = transcript_list.find_generated_transcript(["en"])
-        except NoTranscriptFound:
-            raise UserFacingError("이 영상에는 영어 자막이 없어요. 영어 자막이 있는 영상을 시도해주세요.")
 
-    fetched = transcript.fetch()
-    return [
-        {"text": snippet.text, "start": snippet.start, "duration": snippet.duration}
-        for snippet in fetched
-    ]
+def _download_audio(video_id: str) -> Path:
+    tmp_dir = Path(tempfile.mkdtemp(prefix="ebite_audio_"))
+    opts = {
+        "format": "bestaudio/best",
+        "outtmpl": str(tmp_dir / "audio.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
+    except Exception as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise UserFacingError("이 영상을 찾을 수 없어요. 비공개 영상이거나 삭제된 영상일 수 있어요.") from e
+
+    files = list(tmp_dir.glob("audio.*"))
+    if not files:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise UserFacingError("이 영상의 오디오를 가져올 수 없었어요. 다른 영상을 시도해주세요.")
+    return files[0]
+
+
+def fetch_caption_words(video_id: str):
+    # Previously read YouTube's own caption timing (first the plain cue-level transcript, later
+    # its json3 format for per-word offsets) - but that's only as good as YouTube's own ASR
+    # alignment, which turned out fine for slow, clearly-enunciated speech and badly wrong for
+    # normal-paced interviews and panel discussions (confirmed by directly comparing both against
+    # the actual audio). Transcribing the audio ourselves with Whisper - a well-established local
+    # ASR model - gives real word-level timestamps derived directly from the audio instead of
+    # trusting a third party's alignment we can't inspect or fix.
+    audio_path = _download_audio(video_id)
+    try:
+        model = load_whisper()
+        segments, _ = model.transcribe(str(audio_path), word_timestamps=True, language="en")
+        words = []
+        for segment in segments:
+            for w in segment.words:
+                text = w.word.strip()
+                if text:
+                    # w.start/w.end come back as numpy float64, not a plain float - json.dump
+                    # chokes on that.
+                    words.append({"text": text, "start_ms": float(w.start) * 1000, "end_ms": float(w.end) * 1000})
+        if not words:
+            raise UserFacingError("이 영상에서 음성을 인식하지 못했어요. 다른 영상을 시도해주세요.")
+        return words
+    finally:
+        shutil.rmtree(audio_path.parent, ignore_errors=True)
 
 
 _segmenter = pysbd.Segmenter(language="en", clean=False)
 
 
-def cues_to_sentences(cues):
-    """Caption cues are ~5s sliding windows that rarely end on a sentence boundary
-    (periods land mid-cue). Build one continuous transcript with a char->timestamp
-    map from the cues, split that transcript into real sentences with pysbd, then
-    look up each sentence's time range from the cues whose characters it spans."""
+def words_to_sentences(words):
+    """Build one continuous transcript by joining every word, with a parallel char-range map
+    back to each word's real timestamp. Splitting into sentences this way gives each sentence's
+    span, and each word's karaoke highlight time within it, directly from the source timing -
+    no interpolation needed now that fetch_caption_words already resolved per-word timestamps."""
     full_text = ""
-    char_map = []  # (char_start, char_end, cue_start, cue_end)
+    char_map = []  # (char_start, char_end), index-aligned with `words`
 
-    for cue in cues:
-        text = re.sub(r"\s+", " ", cue["text"]).strip()
+    for w in words:
+        text = re.sub(r"\s+", " ", w["text"]).strip()
         if not text:
             continue
         if full_text and not full_text.endswith(" "):
             full_text += " "
         char_start = len(full_text)
         full_text += text
-        char_map.append((char_start, len(full_text), cue["start"], cue["start"] + cue["duration"]))
-
-    def interpolate(char_pos, cs, ce, ts, te):
-        if ce <= cs:
-            return ts
-        frac = max(0.0, min(1.0, (char_pos - cs) / (ce - cs)))
-        return ts + frac * (te - ts)
+        char_map.append((char_start, len(full_text)))
 
     sentences = []
     pos = 0
@@ -99,20 +132,50 @@ def cues_to_sentences(cues):
         start_char, end_char = idx, idx + len(s)
         pos = end_char
 
-        # Snapping to the whole span of whichever cue a sentence touches makes
-        # the marked end time run late (a cue keeps going after this sentence's
-        # last character, into the next sentence) - that's what made the Korean
-        # subtitle visibly lag behind the spoken audio. Interpolate linearly
-        # within the boundary cue's time span by character position instead.
-        seg_start = seg_end = None
-        for cs, ce, ts, te in char_map:
-            if ce > start_char and seg_start is None:
-                seg_start = interpolate(start_char, cs, ce, ts, te)
-            if cs < end_char:
-                seg_end = interpolate(end_char, cs, ce, ts, te)
-        sentences.append({"text": s, "start": seg_start, "end": seg_end})
+        sentence_words = [
+            {"text": words[i]["text"], "start": words[i]["start_ms"] / 1000, "end": words[i]["end_ms"] / 1000}
+            for i, (cs, ce) in enumerate(char_map)
+            if ce > start_char and cs < end_char
+        ]
+        if not sentence_words:
+            continue
+        sentences.append({
+            "text": s,
+            "start": sentence_words[0]["start"],
+            "end": sentence_words[-1]["end"],
+            "words": sentence_words,
+        })
 
-    return sentences
+    return [piece for sentence in sentences for piece in _split_long_sentence(sentence)]
+
+
+MAX_SENTENCE_CHARS = 110  # a sentence longer than this on screen forces the subtitle font
+                          # down to its smallest tier - split it into shorter, still fully
+                          # accurately-timed pieces instead (real per-word timestamps make this
+                          # exact, not a guess).
+
+
+def _split_long_sentence(sentence: dict) -> list[dict]:
+    words = sentence["words"]
+    if len(sentence["text"]) <= MAX_SENTENCE_CHARS or len(words) < 4:
+        return [sentence]
+
+    mid = len(words) // 2
+    # Prefer cutting right after a comma/semicolon/colon near the middle - reads more
+    # naturally than an arbitrary word-count split.
+    punct_indices = [i for i, w in enumerate(words) if w["text"].rstrip().endswith((",", ";", ":"))]
+    split_at = min(punct_indices, key=lambda i: abs(i - mid)) + 1 if punct_indices else mid
+    split_at = max(1, min(split_at, len(words) - 1))
+
+    pieces = []
+    for chunk in (words[:split_at], words[split_at:]):
+        pieces.append({
+            "text": " ".join(w["text"] for w in chunk),
+            "start": chunk[0]["start"],
+            "end": chunk[-1]["end"],
+            "words": chunk,
+        })
+    return [p for half in pieces for p in _split_long_sentence(half)]
 
 
 def load_translator():
@@ -158,14 +221,21 @@ def translate_batch(texts: list[str], batch_size: int = 16) -> list[str]:
 
 def process_video(url: str):
     video_id = extract_video_id(url)
-    cues = fetch_caption_cues(video_id)
-    sentences = cues_to_sentences(cues)
+    words = fetch_caption_words(video_id)
+    sentences = words_to_sentences(words)
 
     translations = translate_batch([s["text"] for s in sentences])
     for sentence, ko in zip(sentences, translations):
         sentence["ko"] = ko
 
-    return {"video_id": video_id, "sentence_count": len(sentences), "sentences": sentences}
+    idioms = extract_idioms(sentences)
+
+    return {
+        "video_id": video_id,
+        "sentence_count": len(sentences),
+        "sentences": sentences,
+        "idioms": idioms,
+    }
 
 
 if __name__ == "__main__":
