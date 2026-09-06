@@ -46,7 +46,10 @@ Respond ONLY with a JSON array (no other text). Each element:
 {"index": <sentence number>, "phrase": "<the specific idiom/term, copied verbatim from the sentence>", "note_ko": "<explanation IN KOREAN (한국어), 1-2 sentences>"}
 
 note_ko must be written entirely in Korean - not English, not a mix. This is for a Korean
-learner studying English, so an English explanation is useless to them.
+learner studying English, so an English explanation is useless to them. Just give the meaning
+directly - do NOT add a sentence explaining that this might be hard for a Korean learner to
+understand (e.g. "한국 학습자는 이해하기 어려울 수 있습니다"). That's already the reason it
+was picked; saying so again wastes the space instead of explaining what it actually means.
 
 If nothing in this chunk qualifies, respond with exactly: []
 
@@ -89,6 +92,24 @@ def _parse_json_array(text: str) -> list:
 
 def _significant_words(text: str) -> list:
     return [w for w in re.findall(r"[a-zA-Z']+", text.lower()) if w not in STOPWORDS and len(w) > 1]
+
+
+REDUNDANT_COMMENTARY_MARKERS = (
+    "어렵", "익숙하지", "생소", "낯설", "이해하기", "모를 수", "몰랐", "익숙하지 않",
+)
+
+
+def _strip_redundant_commentary(note: str) -> str:
+    # Despite the prompt saying not to, the model often tacks on a sentence like "한국
+    # 학습자는 이해하기 어려울 수 있습니다" - restating why it was flagged instead of
+    # explaining what it means. Drop just that sentence rather than the whole note.
+    sentences = re.split(r"(?<=[.!?])\s+", note.strip())
+    kept = [
+        s for s in sentences
+        if not ("한국" in s and any(marker in s for marker in REDUNDANT_COMMENTARY_MARKERS))
+    ]
+    cleaned = " ".join(kept).strip()
+    return cleaned if cleaned else note
 
 
 def _is_mostly_korean(text: str) -> bool:
@@ -157,6 +178,7 @@ def extract_idioms(sentences: list) -> list:
                 continue
             if not _is_mostly_korean(note):
                 continue
+            note = _strip_redundant_commentary(note)
             phrase = item.get("phrase") or ""
             sentence_text = sentences[idx - 1]["text"]
             if not _phrase_appears_in_sentence(phrase, sentence_text):
