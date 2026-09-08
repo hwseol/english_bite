@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -286,7 +287,12 @@ private fun PlaybackSpeedButton(
 }
 
 @Composable
-fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
+fun StudyScreen(
+    result: VideoResult,
+    onBack: () -> Unit,
+    isInPip: Boolean = false,
+    onRequestPip: () -> Unit = {}
+) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val activity = remember { context.findActivity() }
@@ -403,7 +409,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
             .navigationBarsPadding()
     ) {
         Box(
-            modifier = if (isFullscreen) {
+            modifier = if (isFullscreen || isInPip) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -415,7 +421,11 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                 // must letterbox by height, not stretch to fill both dimensions - otherwise the
                 // video gets cropped/zoomed and, since the crop pushes the player's own control
                 // bar past the visible edge, YouTube's controls appear to vanish along with it.
-                modifier = if (isFullscreen) {
+                // In PiP the window itself is already locked to 16:9 (see MainActivity's
+                // PictureInPictureParams), so a plain fill is fine there.
+                modifier = if (isInPip) {
+                    Modifier.fillMaxSize()
+                } else if (isFullscreen) {
                     Modifier.fillMaxHeight().aspectRatio(16f / 9f)
                 } else {
                     Modifier.fillMaxSize()
@@ -452,7 +462,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
             // screen and there's nowhere else to put them. In the small embedded view this
             // same corner is where YouTube draws its own controls, and the overlay was
             // intercepting taps meant for those - see the control row below the video instead.
-            if (isFullscreen) {
+            if (isFullscreen && !isInPip) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -477,7 +487,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                 }
             }
 
-            if (isFullscreen && currentSentence != null) {
+            if (isFullscreen && !isInPip && currentSentence != null) {
                 val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                 Column(
                     modifier = Modifier
@@ -513,10 +523,14 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
             }
         }
 
+        // Hide every custom control/subtitle overlay while in PiP - the floating window is
+        // tiny, only shows the video itself, and none of this UI would be usable in it anyway.
+        if (!isInPip) {
         if (!isFullscreen) {
             // Kept off the video surface itself here (unlike in fullscreen) so it doesn't sit
             // on top of - and block taps on - YouTube's own controls in the small embedded view.
             Row(
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -528,6 +542,20 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = onRequestPip,
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                        .size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PictureInPictureAlt,
+                        contentDescription = "미니 플레이어로 보기",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = { setFullscreen(true) },
@@ -586,6 +614,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                     )
                 }
             }
+        }
         }
     }
 }
