@@ -23,7 +23,7 @@ class CatalogViewModel : ViewModel() {
     private val _channelFilter = MutableStateFlow<String?>(null)
     val channelFilter: StateFlow<String?> = _channelFilter
 
-    private val _sort = MutableStateFlow(CatalogSort.POPULAR)
+    private val _sort = MutableStateFlow(CatalogSort.LATEST)
     val sort: StateFlow<CatalogSort> = _sort
 
     private var allItems: List<CatalogItem> = emptyList()

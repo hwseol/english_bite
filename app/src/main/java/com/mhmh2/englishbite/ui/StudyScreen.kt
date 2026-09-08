@@ -196,34 +196,48 @@ private fun SentenceNavControls(
     onPrevious: () -> Unit,
     onRepeat: () -> Unit,
     onNext: () -> Unit,
-    tint: Color
+    onDarkBackground: Boolean
 ) {
+    // A classic media-transport layout - prev / (bigger, accented) replay / next - rather than
+    // three identical flat icons floating with no visual hierarchy or sense of being buttons.
+    val secondaryBg = if (onDarkBackground) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant
+    val secondaryTint = if (onDarkBackground) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.padding(top = 6.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.padding(top = 10.dp)
     ) {
-        IconButton(onClick = onPrevious, modifier = Modifier.size(34.dp)) {
+        IconButton(
+            onClick = onPrevious,
+            modifier = Modifier.background(secondaryBg, CircleShape).size(38.dp)
+        ) {
             Icon(
                 imageVector = Icons.Default.SkipPrevious,
                 contentDescription = "이전 문장",
-                tint = tint,
+                tint = secondaryTint,
                 modifier = Modifier.size(22.dp)
             )
         }
-        IconButton(onClick = onRepeat, modifier = Modifier.size(34.dp)) {
+        IconButton(
+            onClick = onRepeat,
+            modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).size(48.dp)
+        ) {
             Icon(
                 imageVector = Icons.Default.Replay,
                 contentDescription = "이 문장 다시 듣기",
-                tint = tint,
-                modifier = Modifier.size(20.dp)
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(24.dp)
             )
         }
-        IconButton(onClick = onNext, modifier = Modifier.size(34.dp)) {
+        IconButton(
+            onClick = onNext,
+            modifier = Modifier.background(secondaryBg, CircleShape).size(38.dp)
+        ) {
             Icon(
                 imageVector = Icons.Default.SkipNext,
                 contentDescription = "다음 문장",
-                tint = tint,
+                tint = secondaryTint,
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -410,12 +424,15 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                     YouTubePlayerView(ctx).apply {
                         lifecycleOwner.lifecycle.addObserver(this)
                         enableAutomaticInitialization = false
-                        // Only suppress end-screen related-video suggestions - leave captions,
-                        // annotations, and everything else at YouTube's normal defaults so its
-                        // native controls (including the CC toggle) work as expected.
+                        // ccLoadPolicy(0) asks YouTube not to default captions on - we already
+                        // show our own English+Korean subtitles, so its native captions on top
+                        // were a second, redundant subtitle line stacked on the video itself.
+                        // This is a request, not a hard override: a video whose uploader forced
+                        // captions on for that specific video can still show them regardless.
                         val options = IFramePlayerOptions.Builder(ctx)
                             .controls(1)
                             .rel(0)
+                            .ccLoadPolicy(0)
                             .build()
                         initialize(object : AbstractYouTubePlayerListener() {
                             override fun onReady(player: YouTubePlayer) {
@@ -490,7 +507,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                         onPrevious = ::previousSentence,
                         onRepeat = ::repeatCurrentSentence,
                         onNext = ::nextSentence,
-                        tint = Color.White
+                        onDarkBackground = true
                     )
                 }
             }
@@ -558,7 +575,7 @@ fun StudyScreen(result: VideoResult, onBack: () -> Unit) {
                             onPrevious = ::previousSentence,
                             onRepeat = ::repeatCurrentSentence,
                             onNext = ::nextSentence,
-                            tint = MaterialTheme.colorScheme.onSurface
+                            onDarkBackground = false
                         )
                     }
                 } else {

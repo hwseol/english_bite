@@ -105,7 +105,7 @@ fun CatalogScreen(
                     colors = chipColors()
                 )
             }
-            items(listOf("CNN", "BBC News", "Bloomberg")) { channel ->
+            items(listOf("CNN", "BBC News", "Bloomberg", "The Economist", "Fox Business")) { channel ->
                 FilterChip(
                     selected = channelFilter == channel,
                     onClick = { onChannelFilterChange(channel) },
@@ -123,17 +123,17 @@ fun CatalogScreen(
         ) {
             item {
                 FilterChip(
-                    selected = sort == CatalogSort.POPULAR,
-                    onClick = { onSortChange(CatalogSort.POPULAR) },
-                    label = { Text("인기순") },
+                    selected = sort == CatalogSort.LATEST,
+                    onClick = { onSortChange(CatalogSort.LATEST) },
+                    label = { Text("최신순") },
                     colors = chipColors()
                 )
             }
             item {
                 FilterChip(
-                    selected = sort == CatalogSort.LATEST,
-                    onClick = { onSortChange(CatalogSort.LATEST) },
-                    label = { Text("최신순") },
+                    selected = sort == CatalogSort.POPULAR,
+                    onClick = { onSortChange(CatalogSort.POPULAR) },
+                    label = { Text("인기순") },
                     colors = chipColors()
                 )
             }
