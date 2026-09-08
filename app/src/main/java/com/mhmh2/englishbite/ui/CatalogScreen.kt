@@ -17,9 +17,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -28,8 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mhmh2.englishbite.data.CatalogItem
+import kotlinx.coroutines.launch
 
 private fun formatViewCount(count: Long): String = when {
     count >= 100_000_000 -> "%.1f억회".format(count / 100_000_000.0)
@@ -69,17 +70,26 @@ fun CatalogScreen(
     state: CatalogState,
     channelFilter: String?,
     sort: CatalogSort,
+    listState: LazyListState,
     onChannelFilterChange: (String?) -> Unit,
     onSortChange: (CatalogSort) -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onManualUrlEntry: () -> Unit
 ) {
-    val listState = rememberLazyListState()
-    // Switching sort/channel reorders or replaces the whole list - staying scrolled to
-    // wherever the user happened to be left them looking at an unrelated middle-of-list
-    // video instead of the new top pick, which is the whole point of changing the sort.
-    LaunchedEffect(sort, channelFilter) {
-        listState.scrollToItem(0)
+    // listState is hoisted by the caller (survives navigating to a video and back, unlike a
+    // rememberLazyListState() created here, which would reset to the top on every return trip -
+    // that's also why scrolling to 0 happens right in these click handlers instead of a
+    // LaunchedEffect(sort, channelFilter): such an effect fires on every fresh composition of
+    // this screen, including a return-from-video one where sort/channelFilter didn't actually
+    // change, and would reset the scroll position then too.
+    val scope = rememberCoroutineScope()
+    fun changeSort(newSort: CatalogSort) {
+        onSortChange(newSort)
+        scope.launch { listState.scrollToItem(0) }
+    }
+    fun changeChannelFilter(newChannel: String?) {
+        onChannelFilterChange(newChannel)
+        scope.launch { listState.scrollToItem(0) }
     }
 
     Column(
@@ -100,7 +110,7 @@ fun CatalogScreen(
             item {
                 FilterChip(
                     selected = channelFilter == null,
-                    onClick = { onChannelFilterChange(null) },
+                    onClick = { changeChannelFilter(null) },
                     label = { Text("전체") },
                     colors = chipColors()
                 )
@@ -108,7 +118,7 @@ fun CatalogScreen(
             items(listOf("CNN", "BBC News", "Bloomberg", "The Economist", "Fox Business")) { channel ->
                 FilterChip(
                     selected = channelFilter == channel,
-                    onClick = { onChannelFilterChange(channel) },
+                    onClick = { changeChannelFilter(channel) },
                     label = { Text(channel) },
                     colors = chipColors()
                 )
@@ -124,7 +134,7 @@ fun CatalogScreen(
             item {
                 FilterChip(
                     selected = sort == CatalogSort.LATEST,
-                    onClick = { onSortChange(CatalogSort.LATEST) },
+                    onClick = { changeSort(CatalogSort.LATEST) },
                     label = { Text("최신순") },
                     colors = chipColors()
                 )
@@ -132,7 +142,7 @@ fun CatalogScreen(
             item {
                 FilterChip(
                     selected = sort == CatalogSort.POPULAR,
-                    onClick = { onSortChange(CatalogSort.POPULAR) },
+                    onClick = { changeSort(CatalogSort.POPULAR) },
                     label = { Text("인기순") },
                     colors = chipColors()
                 )

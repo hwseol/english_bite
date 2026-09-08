@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
@@ -66,11 +67,18 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val ingestState by studyViewModel.uiState.collectAsState()
                     var showManualInput by remember { mutableStateOf(false) }
+                    var currentVideoTitle by remember { mutableStateOf<String?>(null) }
+                    // Hoisted above the when() so it survives being navigated away from and
+                    // back to (a StudyScreen visit removes CatalogScreen from composition
+                    // entirely, so state remember'd inside it - like a LazyListState created
+                    // there - does not survive; this one, above the when, does).
+                    val catalogListState = rememberLazyListState()
 
                     when (val current = ingestState) {
                         is UiState.Success -> StudyScreen(
                             result = current.result,
                             onBack = { studyViewModel.reset() },
+                            videoTitle = currentVideoTitle,
                             isInPip = isInPip,
                             onRequestPip = ::enterPipMode
                         )
@@ -81,7 +89,10 @@ class MainActivity : ComponentActivity() {
                                 HomeScreen(
                                     isLoading = ingestState is UiState.Loading,
                                     errorMessage = (ingestState as? UiState.Error)?.message,
-                                    onSubmit = { url -> studyViewModel.submitUrl(url) }
+                                    onSubmit = { url ->
+                                        currentVideoTitle = null
+                                        studyViewModel.submitUrl(url)
+                                    }
                                 )
                             } else {
                                 val catalogState by catalogViewModel.state.collectAsState()
@@ -91,9 +102,11 @@ class MainActivity : ComponentActivity() {
                                     state = catalogState,
                                     channelFilter = channelFilter,
                                     sort = sort,
+                                    listState = catalogListState,
                                     onChannelFilterChange = catalogViewModel::setChannelFilter,
                                     onSortChange = catalogViewModel::setSort,
                                     onSelect = { item ->
+                                        currentVideoTitle = item.title
                                         studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
                                     },
                                     onManualUrlEntry = { showManualInput = true }

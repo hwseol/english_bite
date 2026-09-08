@@ -290,6 +290,7 @@ private fun PlaybackSpeedButton(
 fun StudyScreen(
     result: VideoResult,
     onBack: () -> Unit,
+    videoTitle: String? = null,
     isInPip: Boolean = false,
     onRequestPip: () -> Unit = {}
 ) {
@@ -301,6 +302,12 @@ fun StudyScreen(
     var currentSecond by remember { mutableFloatStateOf(0f) }
     var isFullscreen by remember { mutableStateOf(false) }
     var youTubePlayer by remember { mutableStateOf<YouTubePlayer?>(null) }
+    // currentSecond starts at 0f before any real onCurrentSecond callback has arrived, which
+    // would otherwise immediately match a sentence whose own start is 0 (very common - dialogue
+    // beginning right at the first frame) and show its text before the video has even started
+    // playing, still on the loading spinner. Tracked separately from currentSecond so a title
+    // placeholder can show for that stretch instead.
+    var hasStartedPlaying by remember { mutableStateOf(false) }
     var speedIndex by remember { mutableStateOf(PLAYBACK_RATES.indexOfFirst { it.first == 1f }) }
 
     // The last sentence to have started, not "the sentence whose own [start, end) contains
@@ -453,6 +460,12 @@ fun StudyScreen(
                             override fun onCurrentSecond(youTubePlayer: YouTubePlayer, second: Float) {
                                 currentSecond = second
                             }
+
+                            override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {
+                                if (state == PlayerConstants.PlayerState.PLAYING) {
+                                    hasStartedPlaying = true
+                                }
+                            }
                         }, options)
                     }
                 }
@@ -487,8 +500,7 @@ fun StudyScreen(
                 }
             }
 
-            if (isFullscreen && !isInPip && currentSentence != null) {
-                val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
+            if (isFullscreen && !isInPip && (currentSentence != null || !videoTitle.isNullOrBlank())) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -496,6 +508,8 @@ fun StudyScreen(
                         .background(Color.Black.copy(alpha = 0.6f))
                         .padding(horizontal = 24.dp, vertical = 10.dp)
                 ) {
+                if (hasStartedPlaying && currentSentence != null) {
+                    val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     currentIdiom?.let { idiom ->
                         IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = true)
                     }
@@ -519,6 +533,14 @@ fun StudyScreen(
                         onNext = ::nextSentence,
                         onDarkBackground = true
                     )
+                } else if (!videoTitle.isNullOrBlank()) {
+                    Text(
+                        text = videoTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        maxLines = 2
+                    )
+                }
                 }
             }
         }
@@ -579,7 +601,7 @@ fun StudyScreen(
                     .fillMaxWidth()
                     .padding(24.dp)
             ) {
-                if (currentSentence != null) {
+                if (hasStartedPlaying && currentSentence != null) {
                     val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     Column {
                         currentIdiom?.let { idiom ->
@@ -608,9 +630,10 @@ fun StudyScreen(
                     }
                 } else {
                     Text(
-                        "재생하면 영문 자막이 여기 표시됩니다",
+                        text = videoTitle?.takeIf { it.isNotBlank() } ?: "재생하면 영문 자막이 여기 표시됩니다",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3
                     )
                 }
             }
