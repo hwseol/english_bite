@@ -248,6 +248,12 @@ def translate_batch(texts: list[str], batch_size: int = 16) -> list[str]:
                 **inputs,
                 forced_bos_token_id=tokenizer.convert_tokens_to_ids("kor_Hang"),
                 max_length=200,
+                # Greedy decoding on a short, filler-heavy ASR sentence ("uh, uh, uh...")
+                # occasionally loops, repeating the same token/phrase until max_length cuts
+                # it off (spotted as a Korean subtitle of "이 순간" repeated ~20 times).
+                # no_repeat_ngram_size forbids repeating any 3-word span at all.
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.3,
             )
         for j, decoded in zip(batch_indices, tokenizer.batch_decode(tokens, skip_special_tokens=True)):
             results[j] = decoded

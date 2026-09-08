@@ -46,10 +46,13 @@ Respond ONLY with a JSON array (no other text). Each element:
 {"index": <sentence number>, "phrase": "<the specific idiom/term, copied verbatim from the sentence>", "note_ko": "<explanation IN KOREAN (한국어), 1-2 sentences>"}
 
 note_ko must be written entirely in Korean - not English, not a mix. This is for a Korean
-learner studying English, so an English explanation is useless to them. Just give the meaning
-directly - do NOT add a sentence explaining that this might be hard for a Korean learner to
-understand (e.g. "한국 학습자는 이해하기 어려울 수 있습니다"). That's already the reason it
-was picked; saying so again wastes the space instead of explaining what it actually means.
+learner studying English, so an English explanation is useless to them. Just give the concrete
+meaning directly. Do NOT pad the note with vague filler commentary instead of an actual
+meaning - none of these are acceptable substitutes for saying what the phrase means:
+- "한국 학습자는 이해하기 어려울 수 있습니다" (restating why it was picked)
+- "직역하기 어렵고" (saying a literal translation is hard, without giving the real one)
+- "문맥에 따라 의미가 달라집니다" / "특정 상황을 지칭하는 표현입니다" (vague, says nothing)
+Just state what it actually means in this sentence, concretely, in 1-2 sentences.
 
 If nothing in this chunk qualifies, respond with exactly: []
 
@@ -94,21 +97,58 @@ def _significant_words(text: str) -> list:
     return [w for w in re.findall(r"[a-zA-Z']+", text.lower()) if w not in STOPWORDS and len(w) > 1]
 
 
-REDUNDANT_COMMENTARY_MARKERS = (
-    "어렵", "익숙하지", "생소", "낯설", "이해하기", "모를 수", "몰랐", "익숙하지 않",
+# "어렵다" (difficult) is a ㅂ-irregular verb: "어렵" only appears in its dictionary/plain form
+# (어렵다, 어렵고) - conjugations like 어려울/어려운/어려워(서) drop the ㅂ and insert 워/러
+# instead, so "어렵" alone misses the single most common form the model actually uses. These
+# only count as redundant when paired with "한국" - "어렵" etc. can legitimately show up
+# elsewhere in a real explanation of what a phrase means.
+KOREAN_DIFFICULTY_MARKERS = (
+    "어렵", "어려울", "어려운", "어려워",
+    "익숙하지", "생소", "낯설", "이해하기", "모를 수", "몰랐",
+)
+# These are redundant on their own, regardless of whether "한국" is mentioned - vague
+# throat-clearing ("literal translation is hard", "it's a context-dependent expression")
+# instead of an actual meaning.
+VAGUE_FILLER_MARKERS = (
+    "직역하기", "직역이", "문맥에 따라", "특정 상황을 지칭",
+)
+
+
+def _is_redundant_sentence(s: str) -> bool:
+    if any(marker in s for marker in VAGUE_FILLER_MARKERS):
+        return True
+    return "한국" in s and any(marker in s for marker in KOREAN_DIFFICULTY_MARKERS)
+
+
+_REDUNDANT_CLAUSE_KO_RE = re.compile(
+    r",\s*[^,.!?]*한국[^,.!?]*(?:" + "|".join(re.escape(m) for m in KOREAN_DIFFICULTY_MARKERS) + r")[^,.!?]*"
+)
+_REDUNDANT_CLAUSE_VAGUE_RE = re.compile(
+    r",\s*[^,.!?]*(?:" + "|".join(re.escape(m) for m in VAGUE_FILLER_MARKERS) + r")[^,.!?]*"
 )
 
 
 def _strip_redundant_commentary(note: str) -> str:
-    # Despite the prompt saying not to, the model often tacks on a sentence like "한국
-    # 학습자는 이해하기 어려울 수 있습니다" - restating why it was flagged instead of
-    # explaining what it means. Drop just that sentence rather than the whole note.
-    sentences = re.split(r"(?<=[.!?])\s+", note.strip())
-    kept = [
-        s for s in sentences
-        if not ("한국" in s and any(marker in s for marker in REDUNDANT_COMMENTARY_MARKERS))
-    ]
-    cleaned = " ".join(kept).strip()
+    # Most often this is a clause tacked onto the end of a sentence after a comma ("...의
+    # 약자이며, 한국 독자는 이해하기 어려울 수 있습니다.") rather than a separate sentence of
+    # its own - cut the clause first. "이며"/"이고" (copula + connective) left dangling right
+    # before the cut gets turned into a proper sentence ending instead of a broken half-sentence.
+    cleaned = _REDUNDANT_CLAUSE_KO_RE.sub("", note.strip())
+    cleaned = _REDUNDANT_CLAUSE_VAGUE_RE.sub("", cleaned)
+    cleaned = re.sub(r"이며([.!?])", r"입니다\1", cleaned)
+    cleaned = re.sub(r"이고([.!?])", r"입니다\1", cleaned)
+    cleaned = re.sub(r"^[,.\s]+", "", cleaned).strip()
+
+    # Whatever's left might still include a whole separate sentence that's pure commentary
+    # (e.g. a second sentence restating why this was flagged) - drop that sentence outright.
+    # Doing this AFTER the clause cut, not before: on a note that's just one sentence, checking
+    # "does a marker appear anywhere in this (only) sentence" would match the sentence
+    # containing the now-already-removed clause too and wipe the entire note for nothing.
+    sentences = re.split(r"(?<=[.!?])\s+", cleaned)
+    kept = [s for s in sentences if not _is_redundant_sentence(s)]
+    result = " ".join(kept).strip()
+    if result:
+        return result
     return cleaned if cleaned else note
 
 
