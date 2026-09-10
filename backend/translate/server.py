@@ -1,15 +1,26 @@
 import json
+import os
+import shutil
+import tempfile
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from pipeline import UserFacingError, extract_video_id, process_video
+from catalog import upsert_catalog_entry
+from pipeline import UserFacingError, extract_video_id, process_uploaded_audio, process_video
 
 CACHE_DIR = Path(__file__).parent / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
 CATALOG_PATH = Path(__file__).parent / "catalog.json"
+
+# Shared secret the Android app's admin-sync screen sends back - this endpoint lets anyone who
+# has it kick off arbitrary server-side processing (and, via catalog_entry, arbitrary catalog
+# entries), so it's gated even though this is a small personal project. Set via the
+# ADMIN_TOKEN env var on the server (see englishbite-api.service); with no env var set the
+# admin endpoint is disabled entirely rather than silently accepting an empty token.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
 
 app = FastAPI(title="EnglishBite ingest API")
 
@@ -39,6 +50,76 @@ def _run_ingest(url: str, video_id: str):
     finally:
         with _lock:
             _in_progress.discard(video_id)
+
+
+def _run_ingest_from_audio(video_id: str, audio_path: Path, catalog_entry: dict):
+    try:
+        result = process_uploaded_audio(video_id, audio_path)
+        cache_path(video_id).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        upsert_catalog_entry(catalog_entry)
+    except UserFacingError as e:
+        with _lock:
+            _errors[video_id] = (422, str(e))
+    except Exception as e:
+        with _lock:
+            _errors[video_id] = (502, f"번역 처리 중 문제가 발생했어요: {e}")
+    finally:
+        shutil.rmtree(audio_path.parent, ignore_errors=True)
+        with _lock:
+            _in_progress.discard(video_id)
+
+
+@app.post("/admin/ingest")
+async def admin_ingest(
+    video_id: str = Form(...),
+    title: str = Form(...),
+    channel: str = Form(...),
+    thumbnail: str | None = Form(None),
+    view_count: int = Form(0),
+    duration: int = Form(0),
+    upload_date: str = Form(""),
+    timestamp: int = Form(0),
+    audio: UploadFile = File(...),
+    x_admin_token: str | None = Header(None),
+):
+    """Counterpart to catalog.py's yt-dlp-based discovery, for when the server's own IP is
+    blocked by YouTube's bot detection: the Android app (run by the admin, from a residential/
+    mobile IP) scrapes the channel and extracts this video's audio itself, then uploads both
+    here. From here on this is identical to the rest of the pipeline - transcribe, translate,
+    extract idioms, cache, and add to catalog.json."""
+    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid admin token")
+
+    path = cache_path(video_id)
+    if path.exists():
+        return {"status": "done", "cached": True, **json.loads(path.read_text(encoding="utf-8"))}
+
+    with _lock:
+        already_running = video_id in _in_progress
+        _errors.pop(video_id, None)
+        if not already_running:
+            _in_progress.add(video_id)
+
+    if already_running:
+        return {"status": "processing", "video_id": video_id}
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="ebite_admin_audio_"))
+    audio_path = tmp_dir / (audio.filename or "audio")
+    with audio_path.open("wb") as f:
+        shutil.copyfileobj(audio.file, f)
+
+    catalog_entry = {
+        "video_id": video_id,
+        "title": title,
+        "channel": channel,
+        "thumbnail": thumbnail,
+        "view_count": view_count,
+        "duration": duration,
+        "upload_date": upload_date,
+        "timestamp": timestamp,
+    }
+    threading.Thread(target=_run_ingest_from_audio, args=(video_id, audio_path, catalog_entry), daemon=True).start()
+    return {"status": "processing", "video_id": video_id}
 
 
 @app.post("/videos")

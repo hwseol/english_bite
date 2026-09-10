@@ -72,6 +72,22 @@ def _download_audio(video_id: str) -> Path:
     return files[0]
 
 
+def _transcribe_audio(audio_path: Path) -> list[dict]:
+    model = load_whisper()
+    segments, _ = model.transcribe(str(audio_path), word_timestamps=True, language="en")
+    words = []
+    for segment in segments:
+        for w in segment.words:
+            text = w.word.strip()
+            if text:
+                # w.start/w.end come back as numpy float64, not a plain float - json.dump
+                # chokes on that.
+                words.append({"text": text, "start_ms": float(w.start) * 1000, "end_ms": float(w.end) * 1000})
+    if not words:
+        raise UserFacingError("이 영상에서 음성을 인식하지 못했어요. 다른 영상을 시도해주세요.")
+    return words
+
+
 def fetch_caption_words(video_id: str):
     # Previously read YouTube's own caption timing (first the plain cue-level transcript, later
     # its json3 format for per-word offsets) - but that's only as good as YouTube's own ASR
@@ -82,19 +98,7 @@ def fetch_caption_words(video_id: str):
     # trusting a third party's alignment we can't inspect or fix.
     audio_path = _download_audio(video_id)
     try:
-        model = load_whisper()
-        segments, _ = model.transcribe(str(audio_path), word_timestamps=True, language="en")
-        words = []
-        for segment in segments:
-            for w in segment.words:
-                text = w.word.strip()
-                if text:
-                    # w.start/w.end come back as numpy float64, not a plain float - json.dump
-                    # chokes on that.
-                    words.append({"text": text, "start_ms": float(w.start) * 1000, "end_ms": float(w.end) * 1000})
-        if not words:
-            raise UserFacingError("이 영상에서 음성을 인식하지 못했어요. 다른 영상을 시도해주세요.")
-        return words
+        return _transcribe_audio(audio_path)
     finally:
         shutil.rmtree(audio_path.parent, ignore_errors=True)
 
@@ -261,9 +265,7 @@ def translate_batch(texts: list[str], batch_size: int = 16) -> list[str]:
     return results
 
 
-def process_video(url: str):
-    video_id = extract_video_id(url)
-    words = fetch_caption_words(video_id)
+def _process_from_words(video_id: str, words: list[dict]) -> dict:
     sentences = words_to_sentences(words)
 
     # Idiom extraction runs on the full, un-split sentences - a chunk of complete sentences
@@ -285,6 +287,24 @@ def process_video(url: str):
         "sentences": display_sentences,
         "idioms": idioms,
     }
+
+
+def process_video(url: str):
+    """Full local pipeline: downloads the audio itself via yt-dlp, then transcribes/translates
+    it. Used by the CLI entry point below and by preseed.py/catalog.py. Not used by the
+    admin-upload path (server.py's /admin/ingest), which already has audio in hand - fetched by
+    the Android app itself, so as not to reach YouTube from the server's (cloud, bot-flagged) IP -
+    and calls process_uploaded_audio directly instead."""
+    video_id = extract_video_id(url)
+    words = fetch_caption_words(video_id)
+    return _process_from_words(video_id, words)
+
+
+def process_uploaded_audio(video_id: str, audio_path: Path) -> dict:
+    """Same pipeline as process_video, but starting from an audio file that's already on disk -
+    for the admin-upload flow where the Android app extracted and uploaded the audio itself."""
+    words = _transcribe_audio(audio_path)
+    return _process_from_words(video_id, words)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,17 @@ WINDOW_SECONDS = 24 * 60 * 60  # a rolling 24h window by absolute timestamp, not
 CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
 
+def upsert_catalog_entry(item: dict) -> None:
+    """Merge one video's metadata into catalog.json, keyed by video_id. Used both by this
+    script's own yt-dlp-based discovery and by server.py's /admin/ingest, which receives
+    metadata the Android app already scraped on-device instead."""
+    existing = json.loads(CATALOG_PATH.read_text(encoding="utf-8")) if CATALOG_PATH.exists() else []
+    by_id = {v["video_id"]: v for v in existing}
+    by_id[item["video_id"]] = item
+    items = sorted(by_id.values(), key=lambda v: v["view_count"], reverse=True)
+    CATALOG_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def fetch_recent_video_ids(channel_url: str, count: int) -> list[str]:
     with YoutubeDL({"extract_flat": "in_playlist", "playlistend": count, "quiet": True, "no_warnings": True}) as ydl:
         info = ydl.extract_info(channel_url, download=False)

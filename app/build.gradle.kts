@@ -57,4 +57,6 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.youtube.player.core)
     implementation(libs.coil.compose)
+    implementation(libs.newpipe.extractor)
+    implementation(libs.androidx.datastore.preferences)
 }

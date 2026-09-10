@@ -1,7 +1,9 @@
 package com.mhmh2.englishbite.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +67,7 @@ private fun formatUploadTime(unixTimestamp: Long): String {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CatalogScreen(
     state: CatalogState,
@@ -74,7 +77,8 @@ fun CatalogScreen(
     onChannelFilterChange: (String?) -> Unit,
     onSortChange: (CatalogSort) -> Unit,
     onSelect: (CatalogItem) -> Unit,
-    onManualUrlEntry: () -> Unit
+    onManualUrlEntry: () -> Unit,
+    onAdminTrigger: () -> Unit = {}
 ) {
     // listState is hoisted by the caller (survives navigating to a video and back, unlike a
     // rememberLazyListState() created here, which would reset to the top on every return trip -
@@ -100,7 +104,12 @@ fun CatalogScreen(
         Text(
             text = "EnglishBite",
             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+            // Long-press is a deliberately hidden entry point to the admin sync screen -
+            // not something a regular user would stumble into, but easy for the app's owner
+            // to find.
+            modifier = Modifier
+                .combinedClickable(onClick = {}, onLongClick = onAdminTrigger)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
         )
 
         LazyRow(

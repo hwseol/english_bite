@@ -8,4 +8,10 @@
         <domain includeSubdomains="false">10.0.2.2</domain>
         <domain includeSubdomains="false">localhost</domain>
     </domain-config>
+    <!-- The EC2 backend - plain HTTP for now since there's no domain name yet to get a real
+         TLS cert for (just the instance's own public IP). Fine for now; revisit once/if this
+         gets a domain. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">13.218.170.114</domain>
+    </domain-config>
 </network-security-config>
