@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 import shutil
 import tempfile
 import threading
@@ -27,6 +28,27 @@ app = FastAPI(title="EnglishBite ingest API")
 _lock = threading.Lock()
 _in_progress: set[str] = set()
 _errors: dict[str, tuple[int, str]] = {}
+
+# Whisper + NLLB + Ollama each hold their own model in memory and are CPU-heavy to run - the
+# admin-sync flow can enqueue dozens of videos within a couple minutes, and firing off one
+# thread per request (the original design, sized around a single interactive user submitting
+# one video at a time) let that many run concurrently at once and OOM-killed the whole service,
+# losing every in-flight job with nothing cached to show for it. A single background worker
+# processes one video at a time instead - slower to catch up after a big batch, but bounded and
+# won't take the server down.
+_job_queue: "queue.Queue[tuple]" = queue.Queue()
+
+
+def _worker_loop():
+    while True:
+        fn, args = _job_queue.get()
+        try:
+            fn(*args)
+        finally:
+            _job_queue.task_done()
+
+
+threading.Thread(target=_worker_loop, daemon=True).start()
 
 
 class IngestRequest(BaseModel):
@@ -118,7 +140,7 @@ async def admin_ingest(
         "upload_date": upload_date,
         "timestamp": timestamp,
     }
-    threading.Thread(target=_run_ingest_from_audio, args=(video_id, audio_path, catalog_entry), daemon=True).start()
+    _job_queue.put((_run_ingest_from_audio, (video_id, audio_path, catalog_entry)))
     return {"status": "processing", "video_id": video_id}
 
 
@@ -145,7 +167,7 @@ def ingest_video(req: IngestRequest):
             _in_progress.add(video_id)
 
     if not already_running:
-        threading.Thread(target=_run_ingest, args=(req.url, video_id), daemon=True).start()
+        _job_queue.put((_run_ingest, (req.url, video_id)))
 
     return {"status": "processing", "video_id": video_id}
 
