@@ -19,7 +19,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.mhmh2.englishbite.admin.AdminSyncScreen
 import com.mhmh2.englishbite.ui.CatalogScreen
 import com.mhmh2.englishbite.ui.CatalogViewModel
 import com.mhmh2.englishbite.ui.HomeScreen
@@ -68,7 +67,6 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val ingestState by studyViewModel.uiState.collectAsState()
                     var showManualInput by remember { mutableStateOf(false) }
-                    var showAdminSync by remember { mutableStateOf(false) }
                     var currentVideoTitle by remember { mutableStateOf<String?>(null) }
                     // Hoisted above the when() so it survives being navigated away from and
                     // back to (a StudyScreen visit removes CatalogScreen from composition
@@ -86,10 +84,7 @@ class MainActivity : ComponentActivity() {
                         )
 
                         else -> {
-                            if (showAdminSync) {
-                                BackHandler { showAdminSync = false }
-                                AdminSyncScreen(onBack = { showAdminSync = false })
-                            } else if (showManualInput) {
+                            if (showManualInput) {
                                 BackHandler { showManualInput = false }
                                 HomeScreen(
                                     isLoading = ingestState is UiState.Loading,
@@ -114,8 +109,7 @@ class MainActivity : ComponentActivity() {
                                         currentVideoTitle = item.title
                                         studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
                                     },
-                                    onManualUrlEntry = { showManualInput = true },
-                                    onAdminTrigger = { showAdminSync = true }
+                                    onManualUrlEntry = { showManualInput = true }
                                 )
                             }
                         }
