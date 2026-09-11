@@ -327,6 +327,7 @@ fun StudyScreen(
     result: VideoResult,
     onBack: () -> Unit,
     videoTitle: String? = null,
+    startSecond: Float? = null,
     isInPip: Boolean = false,
     onRequestPip: () -> Unit = {}
 ) {
@@ -371,7 +372,9 @@ fun StudyScreen(
             videoTitle = videoTitle ?: result.video_id,
             phrase = idiom.phrase,
             noteKo = idiom.note_ko,
-            example = idiom.example
+            example = idiom.example,
+            sentenceText = currentSentence?.text,
+            sentenceStart = currentSentence?.start ?: 0.0
         )
     }
 
@@ -505,7 +508,7 @@ fun StudyScreen(
                         initialize(object : AbstractYouTubePlayerListener() {
                             override fun onReady(player: YouTubePlayer) {
                                 youTubePlayer = player
-                                player.loadVideo(result.video_id, 0f)
+                                player.loadVideo(result.video_id, startSecond ?: 0f)
                             }
 
                             override fun onCurrentSecond(youTubePlayer: YouTubePlayer, second: Float) {

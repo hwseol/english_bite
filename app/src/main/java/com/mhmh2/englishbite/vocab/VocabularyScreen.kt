@@ -1,6 +1,7 @@
 package com.mhmh2.englishbite.vocab
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun VocabularyScreen(
     onBack: () -> Unit,
+    onSelect: (SavedIdiom) -> Unit = {},
     viewModel: SavedIdiomsViewModel = viewModel()
 ) {
     val items by viewModel.items.collectAsState()
@@ -68,7 +70,7 @@ fun VocabularyScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(items.sortedByDescending { it.savedAt }, key = { it.videoId + it.phrase }) { item ->
-                    VocabCard(item = item, onDelete = { viewModel.remove(item) })
+                    VocabCard(item = item, onDelete = { viewModel.remove(item) }, onClick = { onSelect(item) })
                 }
             }
         }
@@ -76,12 +78,13 @@ fun VocabularyScreen(
 }
 
 @Composable
-private fun VocabCard(item: SavedIdiom, onDelete: () -> Unit) {
+private fun VocabCard(item: SavedIdiom, onDelete: () -> Unit, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
             .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
@@ -105,11 +108,19 @@ private fun VocabCard(item: SavedIdiom, onDelete: () -> Unit) {
                     modifier = Modifier.padding(top = 6.dp)
                 )
             }
+            item.sentenceText?.let { sentence ->
+                Text(
+                    text = "원문  $sentence",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
             Text(
                 text = item.videoTitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp)
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 8.dp)
             )
         }
         IconButton(onClick = onDelete) {

@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val ingestState by studyViewModel.uiState.collectAsState()
                     var currentVideoTitle by remember { mutableStateOf<String?>(null) }
+                    var pendingStartSecond by remember { mutableStateOf<Float?>(null) }
                     var showVocabulary by remember { mutableStateOf(false) }
                     // Hoisted above the when() so it survives being navigated away from and
                     // back to (a StudyScreen visit removes CatalogScreen from composition
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
                             result = current.result,
                             onBack = { studyViewModel.reset() },
                             videoTitle = currentVideoTitle,
+                            startSecond = pendingStartSecond,
                             isInPip = isInPip,
                             onRequestPip = ::enterPipMode
                         )
@@ -96,7 +98,15 @@ class MainActivity : ComponentActivity() {
                         else -> {
                             if (showVocabulary) {
                                 BackHandler { showVocabulary = false }
-                                VocabularyScreen(onBack = { showVocabulary = false })
+                                VocabularyScreen(
+                                    onBack = { showVocabulary = false },
+                                    onSelect = { item ->
+                                        showVocabulary = false
+                                        currentVideoTitle = item.videoTitle
+                                        pendingStartSecond = item.sentenceStart.toFloat()
+                                        studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.videoId}")
+                                    }
+                                )
                             } else {
                                 val catalogState by catalogViewModel.state.collectAsState()
                                 val channelFilter by catalogViewModel.channelFilter.collectAsState()
@@ -110,6 +120,7 @@ class MainActivity : ComponentActivity() {
                                     onSortChange = catalogViewModel::setSort,
                                     onSelect = { item ->
                                         currentVideoTitle = item.title
+                                        pendingStartSecond = null
                                         studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
                                     },
                                     onOpenVocabulary = { showVocabulary = true }

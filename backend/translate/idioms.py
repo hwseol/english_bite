@@ -194,8 +194,15 @@ def _is_plausible_phrase(phrase: str, sentence: str) -> bool:
         return False
     if re.search(r"\d", phrase) and len(phrase_words) <= 3:
         return False  # a statistic/amount ("90 billion euros"), not an expression
+    # The word-count cap above already keeps a "phrase" to a handful of words - this ratio is
+    # only meant to catch the case that cap alone misses: an entire short sentence flagged as
+    # one "phrase". A short sentence built around one legitimate multi-word idiom (very common
+    # in punchy news clips - "went over like a lead balloon" is 5 of a 9-word sentence) was
+    # getting rejected here for the same reason a genuine whole-clause mistake would be -
+    # 0.65 still catches the latter while no longer punishing a real idiom for being in a
+    # short sentence.
     sentence_word_count = max(len(_significant_words(sentence)), 1)
-    return len(phrase_words) / sentence_word_count <= 0.5
+    return len(phrase_words) / sentence_word_count <= 0.65
 
 
 def extract_idioms(sentences: list) -> list:
