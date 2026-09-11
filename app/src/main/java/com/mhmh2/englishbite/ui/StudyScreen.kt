@@ -59,6 +59,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -155,12 +156,21 @@ private fun IdiomBadge(
                     .background(noteBg)
                     .padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 2.dp)
             ) {
-                Text(
-                    text = idiom.note_ko,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = noteColor,
-                    modifier = Modifier.weight(1f)
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = idiom.note_ko,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = noteColor
+                    )
+                    idiom.example?.let { example ->
+                        Text(
+                            text = "예문  $example",
+                            style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                            color = noteColor.copy(alpha = 0.85f),
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                }
                 IconButton(onClick = onToggleSave, modifier = Modifier.size(28.dp)) {
                     Icon(
                         imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -170,7 +180,13 @@ private fun IdiomBadge(
                     )
                 }
                 IconButton(
-                    onClick = { clipboard.setText(AnnotatedString("${idiom.phrase}\n${idiom.note_ko}")) },
+                    onClick = {
+                        val text = buildString {
+                            append(idiom.phrase).append("\n").append(idiom.note_ko)
+                            idiom.example?.let { append("\n예문: ").append(it) }
+                        }
+                        clipboard.setText(AnnotatedString(text))
+                    },
                     modifier = Modifier.size(28.dp)
                 ) {
                     Icon(
@@ -354,7 +370,8 @@ fun StudyScreen(
             videoId = result.video_id,
             videoTitle = videoTitle ?: result.video_id,
             phrase = idiom.phrase,
-            noteKo = idiom.note_ko
+            noteKo = idiom.note_ko,
+            example = idiom.example
         )
     }
 

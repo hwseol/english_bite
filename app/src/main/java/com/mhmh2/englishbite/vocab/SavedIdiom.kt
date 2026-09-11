@@ -5,5 +5,6 @@ data class SavedIdiom(
     val videoTitle: String,
     val phrase: String,
     val noteKo: String,
-    val savedAt: Long
+    val savedAt: Long,
+    val example: String? = null
 )

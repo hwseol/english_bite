@@ -24,7 +24,8 @@ data class Sentence(
 data class Idiom(
     val sentence_index: Int,
     val phrase: String,
-    val note_ko: String
+    val note_ko: String,
+    val example: String? = null
 )
 
 /** "processing" while a fresh video is still being translated server-side, "done" once

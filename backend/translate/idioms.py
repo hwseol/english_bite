@@ -43,7 +43,7 @@ The "phrase" field must be the SHORT specific expression itself (a few words), n
 all of the sentence it came from.
 
 Respond ONLY with a JSON array (no other text). Each element:
-{"index": <sentence number>, "phrase": "<the specific idiom/term, copied verbatim from the sentence>", "note_ko": "<explanation IN KOREAN (한국어), 1-2 sentences>"}
+{"index": <sentence number>, "phrase": "<the specific idiom/term, copied verbatim from the sentence>", "note_ko": "<explanation IN KOREAN (한국어), 1-2 sentences>", "example": "<one new, natural English sentence using the phrase correctly - NOT copied from the source sentence, a fresh everyday context instead, so the learner sees it used a second way>"}
 
 note_ko must be written entirely in Korean - not English, not a mix. This is for a Korean
 learner studying English, so an English explanation is useless to them. Just give the concrete
@@ -225,6 +225,12 @@ def extract_idioms(sentences: list) -> list:
                 continue
             if not _is_plausible_phrase(phrase, sentence_text):
                 continue
-            findings.append({"sentence_index": idx, "phrase": phrase, "note_ko": note})
+            example = (item.get("example") or "").strip()
+            # A hallucinated/off-topic example is worse than none - only keep it if it
+            # actually seems to use the flagged phrase, same check used above for the
+            # source sentence itself.
+            if not example or not _phrase_appears_in_sentence(phrase, example):
+                example = None
+            findings.append({"sentence_index": idx, "phrase": phrase, "note_ko": note, "example": example})
 
     return findings

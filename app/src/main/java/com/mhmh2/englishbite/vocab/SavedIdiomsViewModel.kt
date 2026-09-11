@@ -37,12 +37,12 @@ class SavedIdiomsViewModel(application: Application) : AndroidViewModel(applicat
     fun isSaved(videoId: String, phrase: String): Boolean =
         _items.value.any { it.videoId == videoId && it.phrase == phrase }
 
-    fun toggleSave(videoId: String, videoTitle: String, phrase: String, noteKo: String) {
+    fun toggleSave(videoId: String, videoTitle: String, phrase: String, noteKo: String, example: String? = null) {
         val already = _items.value.any { it.videoId == videoId && it.phrase == phrase }
         _items.value = if (already) {
             _items.value.filterNot { it.videoId == videoId && it.phrase == phrase }
         } else {
-            _items.value + SavedIdiom(videoId, videoTitle, phrase, noteKo, System.currentTimeMillis())
+            _items.value + SavedIdiom(videoId, videoTitle, phrase, noteKo, System.currentTimeMillis(), example)
         }
         persist()
     }
