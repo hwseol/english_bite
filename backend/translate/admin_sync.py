@@ -35,7 +35,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 from catalog import CHANNELS, MAX_DURATION_SECONDS, RECENT_CHECK_COUNT
 from catalog import fetch_recent_video_ids, fetch_video_details
 
-SERVER_URL = "http://13.218.170.114:8000"
+SERVER_URL = "https://13-218-170-114.sslip.io"
 TOKEN_PATH = Path.home() / ".secrets" / "englishbite_admin_token.txt"
 
 

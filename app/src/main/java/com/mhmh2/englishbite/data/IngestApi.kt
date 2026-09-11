@@ -23,10 +23,12 @@ interface IngestApi {
 }
 
 object ApiClient {
-    // The AWS EC2 instance now hosts the backend directly (plain HTTP - see
-    // network_security_config.xml for the cleartext exception; no domain name yet for a real
-    // TLS cert). Stable IP, no dev machine or tunnel needed anymore.
-    private const val BASE_URL = "http://13.218.170.114:8000/"
+    // The AWS EC2 instance's raw IP has no name of its own to put a real TLS cert on, so it's
+    // addressed through sslip.io instead - a free service that resolves
+    // "<ip-with-dashes>.sslip.io" straight back to that IP with no registration needed. nginx
+    // in front of the API (see /etc/nginx/conf.d/englishbite.conf on the server) terminates a
+    // real Let's Encrypt certificate for that hostname and proxies through to the API on 8000.
+    private const val BASE_URL = "https://13-218-170-114.sslip.io/"
 
     val ingestApi: IngestApi by lazy {
         val logging = HttpLoggingInterceptor().apply {
