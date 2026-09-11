@@ -32,14 +32,19 @@ class CatalogViewModel : ViewModel() {
         refresh()
     }
 
-    fun refresh() {
-        _state.value = CatalogState.Loading
+    /** [silent] is used for the automatic refresh on every app resume (see MainActivity) - the
+     * catalog keeps growing as the backend finishes processing more videos, but a user who just
+     * switched back from another app shouldn't see the list they were already looking at
+     * replaced by a loading spinner, or - worse - an error screen over one transient network
+     * hiccup. Only the very first load (init below) blanks the screen while it fetches. */
+    fun refresh(silent: Boolean = false) {
+        if (!silent) _state.value = CatalogState.Loading
         viewModelScope.launch {
             try {
                 allItems = ApiClient.ingestApi.getCatalog()
                 applyFilterAndSort()
             } catch (e: Exception) {
-                _state.value = CatalogState.Error(e.message ?: "목록을 불러오지 못했습니다")
+                if (!silent) _state.value = CatalogState.Error(e.message ?: "목록을 불러오지 못했습니다")
             }
         }
     }

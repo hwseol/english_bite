@@ -59,6 +59,16 @@ class MainActivity : ComponentActivity() {
         isInPip = isInPictureInPictureMode
     }
 
+    // Real users switch back to the app instead of force-closing and relaunching it, so a
+    // catalog fetched only once at process start (CatalogViewModel's init block) would stay
+    // stale for as long as the process stays alive - which on a phone can be all day. Refreshing
+    // on every resume (silently - see CatalogViewModel.refresh) means newly-processed videos
+    // show up without the user having to do anything.
+    override fun onResume() {
+        super.onResume()
+        catalogViewModel.refresh(silent = true)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
