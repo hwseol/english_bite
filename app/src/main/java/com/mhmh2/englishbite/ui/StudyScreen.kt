@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -41,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,10 +65,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mhmh2.englishbite.data.Idiom
 import com.mhmh2.englishbite.data.Sentence
 import com.mhmh2.englishbite.data.VideoResult
 import com.mhmh2.englishbite.data.Word
+import com.mhmh2.englishbite.vocab.SavedIdiomsViewModel
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
@@ -105,7 +110,14 @@ private fun subtitleStyles(english: String, korean: String): SubtitleStyles {
  * at most 1-2 per ~8-sentence stretch of the video, often none. Tapping expands a card
  * with the Korean explanation and a copy-to-clipboard action; tapping again collapses it. */
 @Composable
-private fun IdiomBadge(idiom: Idiom, expanded: Boolean, onToggle: () -> Unit, onDarkBackground: Boolean) {
+private fun IdiomBadge(
+    idiom: Idiom,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onDarkBackground: Boolean,
+    isSaved: Boolean,
+    onToggleSave: () -> Unit
+) {
     val clipboard = LocalClipboardManager.current
     val pillBg = MaterialTheme.colorScheme.primary.copy(alpha = if (onDarkBackground) 0.28f else 0.14f)
     val noteBg = if (onDarkBackground) Color.Black.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceVariant
@@ -149,6 +161,14 @@ private fun IdiomBadge(idiom: Idiom, expanded: Boolean, onToggle: () -> Unit, on
                     color = noteColor,
                     modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = onToggleSave, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                        contentDescription = if (isSaved) "단어장에서 제거" else "단어장에 저장",
+                        tint = noteColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
                 IconButton(
                     onClick = { clipboard.setText(AnnotatedString("${idiom.phrase}\n${idiom.note_ko}")) },
                     modifier = Modifier.size(28.dp)
@@ -323,6 +343,20 @@ fun StudyScreen(
         if (currentIndex < 0) null else result.idioms.firstOrNull { it.sentence_index == currentIndex + 1 }
     }
     var idiomExpanded by remember(currentIdiom?.sentence_index) { mutableStateOf(false) }
+
+    val savedIdiomsViewModel: SavedIdiomsViewModel = viewModel()
+    val savedIdioms by savedIdiomsViewModel.items.collectAsState()
+    val currentIdiomSaved = currentIdiom != null &&
+        savedIdioms.any { it.videoId == result.video_id && it.phrase == currentIdiom.phrase }
+    fun toggleSaveCurrentIdiom() {
+        val idiom = currentIdiom ?: return
+        savedIdiomsViewModel.toggleSave(
+            videoId = result.video_id,
+            videoTitle = videoTitle ?: result.video_id,
+            phrase = idiom.phrase,
+            noteKo = idiom.note_ko
+        )
+    }
 
     // Pause while reading the explanation, resume on closing it - otherwise the video (and
     // the sentence the badge is even about) keeps moving on while it's being read.
@@ -511,7 +545,10 @@ fun StudyScreen(
                 if (hasStartedPlaying && currentSentence != null) {
                     val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     currentIdiom?.let { idiom ->
-                        IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = true)
+                        IdiomBadge(
+                            idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = true,
+                            isSaved = currentIdiomSaved, onToggleSave = ::toggleSaveCurrentIdiom
+                        )
                     }
                     RepeatableSentence(
                         words = displayWords,
@@ -605,7 +642,10 @@ fun StudyScreen(
                     val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     Column {
                         currentIdiom?.let { idiom ->
-                            IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = false)
+                            IdiomBadge(
+                                idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = false,
+                                isSaved = currentIdiomSaved, onToggleSave = ::toggleSaveCurrentIdiom
+                            )
                         }
                         RepeatableSentence(
                             words = displayWords,

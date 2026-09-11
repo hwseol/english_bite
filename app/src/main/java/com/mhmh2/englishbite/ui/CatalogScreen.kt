@@ -21,9 +21,13 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,7 +78,8 @@ fun CatalogScreen(
     listState: LazyListState,
     onChannelFilterChange: (String?) -> Unit,
     onSortChange: (CatalogSort) -> Unit,
-    onSelect: (CatalogItem) -> Unit
+    onSelect: (CatalogItem) -> Unit,
+    onOpenVocabulary: () -> Unit = {}
 ) {
     // listState is hoisted by the caller (survives navigating to a video and back, unlike a
     // rememberLazyListState() created here, which would reset to the top on every return trip).
@@ -99,11 +104,23 @@ fun CatalogScreen(
             .fillMaxSize()
             .statusBarsPadding()
     ) {
-        Text(
-            text = "EnglishBite",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "EnglishBite",
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.weight(1f).padding(vertical = 8.dp)
+            )
+            IconButton(onClick = onOpenVocabulary) {
+                Icon(
+                    imageVector = Icons.Default.Bookmark,
+                    contentDescription = "내 단어장",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
 
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Modifier
 import com.mhmh2.englishbite.ui.CatalogScreen
 import com.mhmh2.englishbite.ui.CatalogViewModel
@@ -24,6 +25,7 @@ import com.mhmh2.englishbite.ui.StudyScreen
 import com.mhmh2.englishbite.ui.StudyViewModel
 import com.mhmh2.englishbite.ui.UiState
 import com.mhmh2.englishbite.ui.theme.EnglishBiteTheme
+import com.mhmh2.englishbite.vocab.VocabularyScreen
 
 class MainActivity : ComponentActivity() {
     private val studyViewModel: StudyViewModel by viewModels()
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val ingestState by studyViewModel.uiState.collectAsState()
                     var currentVideoTitle by remember { mutableStateOf<String?>(null) }
+                    var showVocabulary by remember { mutableStateOf(false) }
                     // Hoisted above the when() so it survives being navigated away from and
                     // back to (a StudyScreen visit removes CatalogScreen from composition
                     // entirely, so state remember'd inside it - like a LazyListState created
@@ -91,21 +94,27 @@ class MainActivity : ComponentActivity() {
                         )
 
                         else -> {
-                            val catalogState by catalogViewModel.state.collectAsState()
-                            val channelFilter by catalogViewModel.channelFilter.collectAsState()
-                            val sort by catalogViewModel.sort.collectAsState()
-                            CatalogScreen(
-                                state = catalogState,
-                                channelFilter = channelFilter,
-                                sort = sort,
-                                listState = catalogListState,
-                                onChannelFilterChange = catalogViewModel::setChannelFilter,
-                                onSortChange = catalogViewModel::setSort,
-                                onSelect = { item ->
-                                    currentVideoTitle = item.title
-                                    studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
-                                }
-                            )
+                            if (showVocabulary) {
+                                BackHandler { showVocabulary = false }
+                                VocabularyScreen(onBack = { showVocabulary = false })
+                            } else {
+                                val catalogState by catalogViewModel.state.collectAsState()
+                                val channelFilter by catalogViewModel.channelFilter.collectAsState()
+                                val sort by catalogViewModel.sort.collectAsState()
+                                CatalogScreen(
+                                    state = catalogState,
+                                    channelFilter = channelFilter,
+                                    sort = sort,
+                                    listState = catalogListState,
+                                    onChannelFilterChange = catalogViewModel::setChannelFilter,
+                                    onSortChange = catalogViewModel::setSort,
+                                    onSelect = { item ->
+                                        currentVideoTitle = item.title
+                                        studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
+                                    },
+                                    onOpenVocabulary = { showVocabulary = true }
+                                )
+                            }
                         }
                     }
                 }
