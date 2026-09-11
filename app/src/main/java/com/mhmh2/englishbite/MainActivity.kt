@@ -6,7 +6,6 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -21,7 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.mhmh2.englishbite.ui.CatalogScreen
 import com.mhmh2.englishbite.ui.CatalogViewModel
-import com.mhmh2.englishbite.ui.HomeScreen
 import com.mhmh2.englishbite.ui.StudyScreen
 import com.mhmh2.englishbite.ui.StudyViewModel
 import com.mhmh2.englishbite.ui.UiState
@@ -76,7 +74,6 @@ class MainActivity : ComponentActivity() {
             EnglishBiteTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val ingestState by studyViewModel.uiState.collectAsState()
-                    var showManualInput by remember { mutableStateOf(false) }
                     var currentVideoTitle by remember { mutableStateOf<String?>(null) }
                     // Hoisted above the when() so it survives being navigated away from and
                     // back to (a StudyScreen visit removes CatalogScreen from composition
@@ -94,34 +91,21 @@ class MainActivity : ComponentActivity() {
                         )
 
                         else -> {
-                            if (showManualInput) {
-                                BackHandler { showManualInput = false }
-                                HomeScreen(
-                                    isLoading = ingestState is UiState.Loading,
-                                    errorMessage = (ingestState as? UiState.Error)?.message,
-                                    onSubmit = { url ->
-                                        currentVideoTitle = null
-                                        studyViewModel.submitUrl(url)
-                                    }
-                                )
-                            } else {
-                                val catalogState by catalogViewModel.state.collectAsState()
-                                val channelFilter by catalogViewModel.channelFilter.collectAsState()
-                                val sort by catalogViewModel.sort.collectAsState()
-                                CatalogScreen(
-                                    state = catalogState,
-                                    channelFilter = channelFilter,
-                                    sort = sort,
-                                    listState = catalogListState,
-                                    onChannelFilterChange = catalogViewModel::setChannelFilter,
-                                    onSortChange = catalogViewModel::setSort,
-                                    onSelect = { item ->
-                                        currentVideoTitle = item.title
-                                        studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
-                                    },
-                                    onManualUrlEntry = { showManualInput = true }
-                                )
-                            }
+                            val catalogState by catalogViewModel.state.collectAsState()
+                            val channelFilter by catalogViewModel.channelFilter.collectAsState()
+                            val sort by catalogViewModel.sort.collectAsState()
+                            CatalogScreen(
+                                state = catalogState,
+                                channelFilter = channelFilter,
+                                sort = sort,
+                                listState = catalogListState,
+                                onChannelFilterChange = catalogViewModel::setChannelFilter,
+                                onSortChange = catalogViewModel::setSort,
+                                onSelect = { item ->
+                                    currentVideoTitle = item.title
+                                    studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
+                                }
+                            )
                         }
                     }
                 }

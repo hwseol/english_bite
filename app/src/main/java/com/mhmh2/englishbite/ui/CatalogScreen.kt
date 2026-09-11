@@ -26,7 +26,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,8 +72,7 @@ fun CatalogScreen(
     listState: LazyListState,
     onChannelFilterChange: (String?) -> Unit,
     onSortChange: (CatalogSort) -> Unit,
-    onSelect: (CatalogItem) -> Unit,
-    onManualUrlEntry: () -> Unit
+    onSelect: (CatalogItem) -> Unit
 ) {
     // listState is hoisted by the caller (survives navigating to a video and back, unlike a
     // rememberLazyListState() created here, which would reset to the top on every return trip -
@@ -180,11 +178,6 @@ fun CatalogScreen(
                     ) {
                         items(state.items, key = { it.video_id }) { item ->
                             CatalogCard(item = item, onClick = { onSelect(item) })
-                        }
-                        item {
-                            TextButton(onClick = onManualUrlEntry, modifier = Modifier.fillMaxWidth()) {
-                                Text("URL 직접 입력하기")
-                            }
                         }
                     }
                 }
