@@ -14,10 +14,10 @@ Usage:
 Requires ~/.secrets/englishbite_admin_token.txt to hold the token configured on the server via
 the ADMIN_TOKEN env var (see /etc/systemd/system/englishbite-api.service on the EC2 instance).
 """
+import datetime
 import shutil
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 import requests
@@ -32,7 +32,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from catalog import CHANNELS, MAX_DURATION_SECONDS, RECENT_CHECK_COUNT, WINDOW_SECONDS
+from catalog import CHANNELS, MAX_DURATION_SECONDS, RECENT_CHECK_COUNT
 from catalog import fetch_recent_video_ids, fetch_video_details
 
 SERVER_URL = "http://13.218.170.114:8000"
@@ -100,7 +100,13 @@ def _upload(token: str, item: dict, audio_path: Path) -> None:
 
 def sync() -> None:
     token = _load_admin_token()
-    cutoff = time.time() - WINDOW_SECONDS
+    # The server can only process about one video every ~15-20 minutes on its current CPU-only
+    # instance (Whisper + NLLB + Ollama, all CPU-bound, one at a time - see
+    # _job_queue in server.py) - catalog.py's rolling 24h window was piling up 30+ videos per
+    # run, which the server then took most of a day to work through. Scoping this to just
+    # today (local midnight) keeps each run's batch small enough to actually catch up.
+    midnight = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = midnight.timestamp()
 
     for channel_name, url in CHANNELS.items():
         print(f"[{channel_name}] checking latest {RECENT_CHECK_COUNT} uploads...", flush=True)
