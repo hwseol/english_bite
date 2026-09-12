@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
@@ -51,7 +50,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -84,7 +82,6 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
-import kotlinx.coroutines.delay
 
 private fun Context.findActivity(): Activity? {
     var ctx = this
@@ -241,7 +238,8 @@ private fun SentenceNavControls(
     onPrevious: () -> Unit,
     onRepeat: () -> Unit,
     onNext: () -> Unit,
-    onDarkBackground: Boolean
+    onDarkBackground: Boolean,
+    modifier: Modifier = Modifier
 ) {
     // A classic media-transport layout - prev / (bigger, accented) replay / next - rather than
     // three identical flat icons floating with no visual hierarchy or sense of being buttons.
@@ -251,7 +249,7 @@ private fun SentenceNavControls(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.padding(top = 10.dp)
+        modifier = modifier
     ) {
         IconButton(
             onClick = onPrevious,
@@ -311,11 +309,12 @@ private fun PlaybackSpeedButton(
     speedIndex: Int,
     onCycle: () -> Unit,
     containerColor: Color = Color.Black.copy(alpha = 0.5f),
-    contentColor: Color = Color.White
+    contentColor: Color = Color.White,
+    modifier: Modifier = Modifier
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(containerColor)
             .clickable(onClick = onCycle)
@@ -358,24 +357,15 @@ fun StudyScreen(
     // Tap-to-play/pause (Netflix/YouTube-style) instead of a dedicated pause button: with
     // YouTube's own control bar hidden (controls(0) below - we show our own subtitle-driven
     // controls instead), tapping the video itself is the one intuitive gesture every video app
-    // trains people to expect. A center icon flashes briefly on each tap as feedback, then fades.
+    // trains people to expect.
     var isPlaying by remember { mutableStateOf(false) }
     // With YouTube's own control bar hidden, its built-in loading/buffering spinner goes with
     // it - without this, the video area would just sit blank during the initial load or a
     // mid-playback rebuffer with no indication anything is happening.
     var isBuffering by remember { mutableStateOf(false) }
-    var tapFeedbackToken by remember { mutableIntStateOf(0) }
-    var showTapFeedback by remember { mutableStateOf(false) }
     fun togglePlayback() {
         val player = youTubePlayer ?: return
         if (isPlaying) player.pause() else player.play()
-        tapFeedbackToken++
-        showTapFeedback = true
-    }
-    LaunchedEffect(tapFeedbackToken) {
-        if (tapFeedbackToken == 0) return@LaunchedEffect
-        delay(600)
-        showTapFeedback = false
     }
 
     // The last sentence to have started, not "the sentence whose own [start, end) contains
@@ -562,10 +552,16 @@ fun StudyScreen(
             // Tap-anywhere-to-toggle playback, in both the small embedded view and fullscreen -
             // safe to sit right over the video now that YouTube's own control bar is off
             // (controls(0) above), so there's no native touch target underneath left to block.
+            // While paused, YouTube's iframe shows its own promotional overlay underneath
+            // (channel branding, a suggested-video card, a share icon) - there's no public
+            // parameter to turn that off, so a solid scrim on top hides it instead, with our
+            // own play icon as the only thing the viewer actually sees.
             if (!isInPip) {
+                val paused = hasStartedPlaying && !isPlaying
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .background(if (paused) Color.Black.copy(alpha = 0.94f) else Color.Transparent)
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
@@ -575,19 +571,18 @@ fun StudyScreen(
                 ) {
                     if (!hasStartedPlaying || isBuffering) {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(36.dp))
-                    }
-                    if (showTapFeedback) {
+                    } else if (paused) {
                         Box(
                             modifier = Modifier
-                                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                                .size(64.dp),
+                                .background(Color.White.copy(alpha = 0.16f), CircleShape)
+                                .size(72.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "재생" else "일시정지",
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "재생",
                                 tint = Color.White,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(40.dp)
                             )
                         }
                     }
@@ -656,7 +651,8 @@ fun StudyScreen(
                         onPrevious = ::previousSentence,
                         onRepeat = ::repeatCurrentSentence,
                         onNext = ::nextSentence,
-                        onDarkBackground = true
+                        onDarkBackground = true,
+                        modifier = Modifier.padding(top = 10.dp)
                     )
                 } else if (!videoTitle.isNullOrBlank()) {
                     Text(
@@ -673,53 +669,6 @@ fun StudyScreen(
         // Hide every custom control/subtitle overlay while in PiP - the floating window is
         // tiny, only shows the video itself, and none of this UI would be usable in it anyway.
         if (!isInPip) {
-        if (!isFullscreen) {
-            // Kept off the video surface itself here (unlike in fullscreen) so it doesn't sit
-            // on top of - and block taps on - YouTube's own controls in the small embedded view.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-            ) {
-                PlaybackSpeedButton(
-                    speedIndex = speedIndex,
-                    onCycle = ::cyclePlaybackSpeed,
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.width(8.dp))
-                IconButton(
-                    onClick = onRequestPip,
-                    modifier = Modifier
-                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                        .size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PictureInPictureAlt,
-                        contentDescription = "미니 플레이어로 보기",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                IconButton(
-                    onClick = { setFullscreen(true) },
-                    modifier = Modifier
-                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                        .size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Fullscreen,
-                        contentDescription = "화면 크게",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
-
         if (!isFullscreen) {
             Box(
                 modifier = Modifier
@@ -749,12 +698,57 @@ fun StudyScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 12.dp)
                         )
-                        SentenceNavControls(
-                            onPrevious = ::previousSentence,
-                            onRepeat = ::repeatCurrentSentence,
-                            onNext = ::nextSentence,
-                            onDarkBackground = false
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 14.dp)
+                        ) {
+                            PlaybackSpeedButton(
+                                speedIndex = speedIndex,
+                                onCycle = ::cyclePlaybackSpeed,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.align(Alignment.CenterStart)
+                            )
+                            SentenceNavControls(
+                                onPrevious = ::previousSentence,
+                                onRepeat = ::repeatCurrentSentence,
+                                onNext = ::nextSentence,
+                                onDarkBackground = false,
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            ) {
+                                IconButton(
+                                    onClick = onRequestPip,
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                        .size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PictureInPictureAlt,
+                                        contentDescription = "미니 플레이어로 보기",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { setFullscreen(true) },
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                        .size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Fullscreen,
+                                        contentDescription = "화면 크게",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 } else {
                     Text(
