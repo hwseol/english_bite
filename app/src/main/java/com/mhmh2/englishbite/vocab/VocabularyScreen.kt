@@ -58,7 +58,7 @@ fun VocabularyScreen(
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "저장한 표현이 아직 없어요\n영상에서 관용구를 펼치고 북마크를 눌러보세요",
+                    "저장한 문장이 아직 없어요\n영상 자막 옆 북마크 아이콘을 눌러보세요",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(24.dp)
@@ -69,7 +69,7 @@ fun VocabularyScreen(
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(items.sortedByDescending { it.savedAt }, key = { it.videoId + it.phrase }) { item ->
+                items(items.sortedByDescending { it.savedAt }, key = { it.videoId + it.sentenceStart }) { item ->
                     VocabCard(item = item, onDelete = { viewModel.remove(item) }, onClick = { onSelect(item) })
                 }
             }
@@ -89,32 +89,54 @@ private fun VocabCard(item: SavedIdiom, onDelete: () -> Unit, onClick: () -> Uni
         verticalAlignment = Alignment.Top
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.phrase,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = item.noteKo,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-            item.example?.let { example ->
+            if (item.phrase != null) {
+                // Bookmarked via an idiom - lead with the phrase and its explanation, the
+                // source sentence is supporting context underneath.
                 Text(
-                    text = "예문  $example",
-                    style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp)
+                    text = item.phrase,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
                 )
-            }
-            item.sentenceText?.let { sentence ->
+                item.noteKo?.let { note ->
+                    Text(
+                        text = note,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                item.example?.let { example ->
+                    Text(
+                        text = "예문  $example",
+                        style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+                item.sentenceText?.let { sentence ->
+                    Text(
+                        text = "원문  $sentence",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+            } else {
+                // A plain sentence bookmark, no idiom attached - the sentence itself is the
+                // headline, with its Korean translation right underneath.
                 Text(
-                    text = "원문  $sentence",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp)
+                    text = item.sentenceText ?: "",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
                 )
+                item.sentenceKo?.let { ko ->
+                    Text(
+                        text = ko,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
             Text(
                 text = item.videoTitle,

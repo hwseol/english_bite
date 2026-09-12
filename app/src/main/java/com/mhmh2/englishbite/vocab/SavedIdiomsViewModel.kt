@@ -34,25 +34,36 @@ class SavedIdiomsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun isSaved(videoId: String, phrase: String): Boolean =
-        _items.value.any { it.videoId == videoId && it.phrase == phrase }
+    // Identity is (videoId, sentenceStart) - a sentence, not a phrase, is the thing being
+    // bookmarked; whatever idiom (if any) was flagged on that sentence rides along as extra
+    // fields on the same entry rather than needing its own separate bookmark action.
+    fun isSaved(videoId: String, sentenceStart: Double): Boolean =
+        _items.value.any { it.videoId == videoId && it.sentenceStart == sentenceStart }
 
     fun toggleSave(
         videoId: String,
         videoTitle: String,
-        phrase: String,
-        noteKo: String,
-        example: String? = null,
-        sentenceText: String? = null,
-        sentenceStart: Double = 0.0
+        sentenceText: String,
+        sentenceKo: String,
+        sentenceStart: Double,
+        phrase: String? = null,
+        noteKo: String? = null,
+        example: String? = null
     ) {
-        val already = _items.value.any { it.videoId == videoId && it.phrase == phrase }
+        val already = _items.value.any { it.videoId == videoId && it.sentenceStart == sentenceStart }
         _items.value = if (already) {
-            _items.value.filterNot { it.videoId == videoId && it.phrase == phrase }
+            _items.value.filterNot { it.videoId == videoId && it.sentenceStart == sentenceStart }
         } else {
             _items.value + SavedIdiom(
-                videoId, videoTitle, phrase, noteKo, System.currentTimeMillis(),
-                example, sentenceText, sentenceStart
+                videoId = videoId,
+                videoTitle = videoTitle,
+                savedAt = System.currentTimeMillis(),
+                sentenceText = sentenceText,
+                sentenceKo = sentenceKo,
+                sentenceStart = sentenceStart,
+                phrase = phrase,
+                noteKo = noteKo,
+                example = example
             )
         }
         persist()

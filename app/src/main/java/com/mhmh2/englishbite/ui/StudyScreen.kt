@@ -125,9 +125,7 @@ private fun IdiomBadge(
     idiom: Idiom,
     expanded: Boolean,
     onToggle: () -> Unit,
-    onDarkBackground: Boolean,
-    isSaved: Boolean,
-    onToggleSave: () -> Unit
+    onDarkBackground: Boolean
 ) {
     val clipboard = LocalClipboardManager.current
     val pillBg = MaterialTheme.colorScheme.primary.copy(alpha = if (onDarkBackground) 0.28f else 0.14f)
@@ -180,14 +178,6 @@ private fun IdiomBadge(
                             modifier = Modifier.padding(top = 6.dp)
                         )
                     }
-                }
-                IconButton(onClick = onToggleSave, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        imageVector = if (isSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                        contentDescription = if (isSaved) "단어장에서 제거" else "단어장에 저장",
-                        tint = noteColor,
-                        modifier = Modifier.size(16.dp)
-                    )
                 }
                 IconButton(
                     onClick = {
@@ -413,20 +403,24 @@ fun StudyScreen(
     }
     var idiomExpanded by remember(currentIdiom?.sentence_index) { mutableStateOf(false) }
 
+    // Bookmarking is per-sentence, not per-idiom - any sentence can be saved, whether or not it
+    // happens to have a flagged idiom; when it does, that idiom's phrase/note/example just ride
+    // along on the same bookmark entry (see SavedIdiomsViewModel.toggleSave).
     val savedIdiomsViewModel: SavedIdiomsViewModel = viewModel()
     val savedIdioms by savedIdiomsViewModel.items.collectAsState()
-    val currentIdiomSaved = currentIdiom != null &&
-        savedIdioms.any { it.videoId == result.video_id && it.phrase == currentIdiom.phrase }
-    fun toggleSaveCurrentIdiom() {
-        val idiom = currentIdiom ?: return
+    val currentSentenceSaved = currentSentence != null &&
+        savedIdioms.any { it.videoId == result.video_id && it.sentenceStart == currentSentence.start }
+    fun toggleSaveCurrentSentence() {
+        val sentence = currentSentence ?: return
         savedIdiomsViewModel.toggleSave(
             videoId = result.video_id,
             videoTitle = videoTitle ?: result.video_id,
-            phrase = idiom.phrase,
-            noteKo = idiom.note_ko,
-            example = idiom.example,
-            sentenceText = currentSentence?.text,
-            sentenceStart = currentSentence?.start ?: 0.0
+            sentenceText = sentence.text,
+            sentenceKo = sentence.ko,
+            sentenceStart = sentence.start,
+            phrase = currentIdiom?.phrase,
+            noteKo = currentIdiom?.note_ko,
+            example = currentIdiom?.example
         )
     }
 
@@ -659,10 +653,7 @@ fun StudyScreen(
                 if (hasStartedPlaying && currentSentence != null) {
                     val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     currentIdiom?.let { idiom ->
-                        IdiomBadge(
-                            idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = true,
-                            isSaved = currentIdiomSaved, onToggleSave = ::toggleSaveCurrentIdiom
-                        )
+                        IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = true)
                     }
                     RepeatableSentence(
                         words = displayWords,
@@ -672,12 +663,22 @@ fun StudyScreen(
                         baseColor = Color.White,
                         onRepeat = ::repeatCurrentSentence
                     )
-                    Text(
-                        text = currentSentence.ko,
-                        style = styles.korean,
-                        color = Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                    Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 4.dp)) {
+                        Text(
+                            text = currentSentence.ko,
+                            style = styles.korean,
+                            color = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = ::toggleSaveCurrentSentence, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                imageVector = if (currentSentenceSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = if (currentSentenceSaved) "단어장에서 제거" else "이 문장 저장",
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                     SentenceNavControls(
                         onPrevious = ::previousSentence,
                         onNext = ::nextSentence,
@@ -709,10 +710,7 @@ fun StudyScreen(
                     val styles = subtitleStyles(currentSentence.text, currentSentence.ko)
                     Column {
                         currentIdiom?.let { idiom ->
-                            IdiomBadge(
-                                idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = false,
-                                isSaved = currentIdiomSaved, onToggleSave = ::toggleSaveCurrentIdiom
-                            )
+                            IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = false)
                         }
                         RepeatableSentence(
                             words = displayWords,
@@ -722,12 +720,22 @@ fun StudyScreen(
                             baseColor = MaterialTheme.colorScheme.onSurface,
                             onRepeat = ::repeatCurrentSentence
                         )
-                        Text(
-                            text = currentSentence.ko,
-                            style = styles.korean,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 12.dp)
-                        )
+                        Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 12.dp)) {
+                            Text(
+                                text = currentSentence.ko,
+                                style = styles.korean,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = ::toggleSaveCurrentSentence, modifier = Modifier.size(28.dp)) {
+                                Icon(
+                                    imageVector = if (currentSentenceSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                    contentDescription = if (currentSentenceSaved) "단어장에서 제거" else "이 문장 저장",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
