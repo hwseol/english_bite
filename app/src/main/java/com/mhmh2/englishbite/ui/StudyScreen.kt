@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,19 +34,24 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,11 +78,13 @@ import com.mhmh2.englishbite.data.Sentence
 import com.mhmh2.englishbite.data.VideoResult
 import com.mhmh2.englishbite.data.Word
 import com.mhmh2.englishbite.vocab.SavedIdiomsViewModel
+import com.mhmh2.englishbite.ui.theme.KaraokeHighlightBlue
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+import kotlinx.coroutines.delay
 
 private fun Context.findActivity(): Activity? {
     var ctx = this
@@ -347,6 +355,29 @@ fun StudyScreen(
     var hasStartedPlaying by remember { mutableStateOf(false) }
     var speedIndex by remember { mutableStateOf(PLAYBACK_RATES.indexOfFirst { it.first == 1f }) }
 
+    // Tap-to-play/pause (Netflix/YouTube-style) instead of a dedicated pause button: with
+    // YouTube's own control bar hidden (controls(0) below - we show our own subtitle-driven
+    // controls instead), tapping the video itself is the one intuitive gesture every video app
+    // trains people to expect. A center icon flashes briefly on each tap as feedback, then fades.
+    var isPlaying by remember { mutableStateOf(false) }
+    // With YouTube's own control bar hidden, its built-in loading/buffering spinner goes with
+    // it - without this, the video area would just sit blank during the initial load or a
+    // mid-playback rebuffer with no indication anything is happening.
+    var isBuffering by remember { mutableStateOf(false) }
+    var tapFeedbackToken by remember { mutableIntStateOf(0) }
+    var showTapFeedback by remember { mutableStateOf(false) }
+    fun togglePlayback() {
+        val player = youTubePlayer ?: return
+        if (isPlaying) player.pause() else player.play()
+        tapFeedbackToken++
+        showTapFeedback = true
+    }
+    LaunchedEffect(tapFeedbackToken) {
+        if (tapFeedbackToken == 0) return@LaunchedEffect
+        delay(600)
+        showTapFeedback = false
+    }
+
     // The last sentence to have started, not "the sentence whose own [start, end) contains
     // now" - a strict end-time cutoff left the subtitle blank for a visibly distracting beat
     // in any gap between sentences (a pause, or just the boundary between two adjacent ones).
@@ -495,13 +526,14 @@ fun StudyScreen(
                     YouTubePlayerView(ctx).apply {
                         lifecycleOwner.lifecycle.addObserver(this)
                         enableAutomaticInitialization = false
-                        // ccLoadPolicy(0) asks YouTube not to default captions on - we already
-                        // show our own English+Korean subtitles, so its native captions on top
-                        // were a second, redundant subtitle line stacked on the video itself.
-                        // This is a request, not a hard override: a video whose uploader forced
+                        // controls(0) hides YouTube's own control bar entirely - this app now
+                        // drives play/pause itself (tap-to-toggle below) and sentence navigation
+                        // via its own controls, so YouTube's bar was a second, mostly-redundant
+                        // control surface. ccLoadPolicy(0) asks YouTube not to default captions
+                        // on - a request, not a hard override: a video whose uploader forced
                         // captions on for that specific video can still show them regardless.
                         val options = IFramePlayerOptions.Builder(ctx)
-                            .controls(1)
+                            .controls(0)
                             .rel(0)
                             .ccLoadPolicy(0)
                             .build()
@@ -519,16 +551,52 @@ fun StudyScreen(
                                 if (state == PlayerConstants.PlayerState.PLAYING) {
                                     hasStartedPlaying = true
                                 }
+                                isPlaying = state == PlayerConstants.PlayerState.PLAYING
+                                isBuffering = state == PlayerConstants.PlayerState.BUFFERING
                             }
                         }, options)
                     }
                 }
             )
 
+            // Tap-anywhere-to-toggle playback, in both the small embedded view and fullscreen -
+            // safe to sit right over the video now that YouTube's own control bar is off
+            // (controls(0) above), so there's no native touch target underneath left to block.
+            if (!isInPip) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = ::togglePlayback
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!hasStartedPlaying || isBuffering) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(36.dp))
+                    }
+                    if (showTapFeedback) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                                .size(64.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "재생" else "일시정지",
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Only overlaid on the video itself in fullscreen, where it takes up the whole
-            // screen and there's nowhere else to put them. In the small embedded view this
-            // same corner is where YouTube draws its own controls, and the overlay was
-            // intercepting taps meant for those - see the control row below the video instead.
+            // screen and there's nowhere else to put them - the small embedded view instead
+            // gets the equivalent controls in the row below the video.
             if (isFullscreen && !isInPip) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -574,7 +642,7 @@ fun StudyScreen(
                         words = displayWords,
                         currentSecond = currentSecond.toDouble(),
                         style = styles.english,
-                        highlightColor = MaterialTheme.colorScheme.primary,
+                        highlightColor = KaraokeHighlightBlue,
                         baseColor = Color.White,
                         onRepeat = ::repeatCurrentSentence
                     )
@@ -671,7 +739,7 @@ fun StudyScreen(
                             words = displayWords,
                             currentSecond = currentSecond.toDouble(),
                             style = styles.english,
-                            highlightColor = MaterialTheme.colorScheme.primary,
+                            highlightColor = KaraokeHighlightBlue,
                             baseColor = MaterialTheme.colorScheme.onSurface,
                             onRepeat = ::repeatCurrentSentence
                         )

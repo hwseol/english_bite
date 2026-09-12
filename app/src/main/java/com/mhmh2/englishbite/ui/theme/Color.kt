@@ -18,3 +18,9 @@ val TextPrimary = Color(0xFFF5F5F7)
 val TextSecondary = Color(0xFFA8A8B3)
 
 val ErrorRed = Color(0xFFFF5449)
+
+// Karaoke word-highlight color - kept separate from the brand accent (BiteCoral) rather than
+// reusing it: a cool blue reads more clearly as "spoken so far" against both the dark video
+// scrim and the app's own dark surfaces than the warm coral did, and doesn't visually compete
+// with the idiom badges/buttons that already use the accent color for something else.
+val KaraokeHighlightBlue = Color(0xFF4FA8FF)
