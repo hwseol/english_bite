@@ -37,6 +37,43 @@ WINDOW_SECONDS = 24 * 60 * 60  # a rolling 24h window by absolute timestamp, not
 
 CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
+# Ordered checked in this sequence, first match wins - a title mentioning both a politician and
+# a stock ticker is far more likely a politics story with a market angle than the reverse, so
+# politics/society go before economy, and sports (rarely ambiguous with the others) last.
+CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "정치": (
+        "trump", "biden", "president", "senate", "congress", "election", "midterm",
+        "republican", "democrat", "gop", "white house", "governor", "campaign",
+        "vote", "policy", "administration", "impeach", "capitol", "prime minister",
+        "parliament", "government", "diplomat", "sanctions", "war", "military",
+        "ukraine", "gaza", "israel", "iran", "nato",
+    ),
+    "경제": (
+        "stock", "market", "economy", "economic", "inflation", "fed", "interest rate",
+        "gdp", "earnings", "ipo", "nasdaq", "dow", "s&p", "bond", "yield", "trade deal",
+        "tariff", "recession", "jobs report", "unemployment", "business", "ceo",
+        "billion", "investment", "crypto", "bitcoin", "oil price", "housing market",
+    ),
+    "스포츠": (
+        "nfl", "nba", "mlb", "nhl", "soccer", "football", "basketball", "baseball",
+        "olympic", "world cup", "championship", "tournament", "coach", "athlete",
+        "match", "score", "playoff", "tennis", "golf",
+    ),
+}
+
+
+def classify_category(title: str) -> str:
+    """A quick keyword heuristic, not a model call - this runs once per video on the PC as
+    part of the free scan/download pass, and adding an LLM round-trip here would mean either
+    slowing that down or adding yet more load to the AWS server's already-the-bottleneck single
+    Ollama worker (see project memory on the processing queue). Good enough to sort a news feed
+    into rough sections; not aiming for perfect precision."""
+    lowered = title.lower()
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        if any(keyword in lowered for keyword in keywords):
+            return category
+    return "사회"
+
 
 def upsert_catalog_entry(item: dict) -> None:
     """Merge one video's metadata into catalog.json, keyed by video_id. Used both by this

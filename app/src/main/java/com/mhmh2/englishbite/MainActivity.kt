@@ -151,16 +151,21 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             } else {
-                                val catalogState by catalogViewModel.state.collectAsState()
                                 val channelFilter by catalogViewModel.channelFilter.collectAsState()
+                                val categoryFilter by catalogViewModel.categoryFilter.collectAsState()
                                 val sort by catalogViewModel.sort.collectAsState()
+                                val searchQuery by catalogViewModel.searchQuery.collectAsState()
                                 CatalogScreen(
                                     state = catalogState,
                                     channelFilter = channelFilter,
+                                    categoryFilter = categoryFilter,
                                     sort = sort,
+                                    searchQuery = searchQuery,
                                     listState = catalogListState,
                                     onChannelFilterChange = catalogViewModel::setChannelFilter,
+                                    onCategoryFilterChange = catalogViewModel::setCategoryFilter,
                                     onSortChange = catalogViewModel::setSort,
+                                    onSearchQueryChange = catalogViewModel::setSearchQuery,
                                     onSelect = { item ->
                                         currentVideoTitle = item.title
                                         pendingStartSecond = null

@@ -56,5 +56,9 @@ data class CatalogItem(
     val view_count: Long,
     val duration: Int,
     val upload_date: String,
-    val timestamp: Long = 0
+    val timestamp: Long = 0,
+    // Nullable: entries collected before category classification existed have no such key in
+    // their server-side JSON at all, and Gson leaves a missing field as null regardless of a
+    // Kotlin default (it builds this via reflection, bypassing the constructor).
+    val category: String? = null
 )

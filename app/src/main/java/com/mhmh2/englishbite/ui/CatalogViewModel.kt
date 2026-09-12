@@ -23,8 +23,14 @@ class CatalogViewModel : ViewModel() {
     private val _channelFilter = MutableStateFlow<String?>(null)
     val channelFilter: StateFlow<String?> = _channelFilter
 
+    private val _categoryFilter = MutableStateFlow<String?>(null)
+    val categoryFilter: StateFlow<String?> = _categoryFilter
+
     private val _sort = MutableStateFlow(CatalogSort.LATEST)
     val sort: StateFlow<CatalogSort> = _sort
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
 
     private var allItems: List<CatalogItem> = emptyList()
 
@@ -54,14 +60,28 @@ class CatalogViewModel : ViewModel() {
         applyFilterAndSort()
     }
 
+    fun setCategoryFilter(category: String?) {
+        _categoryFilter.value = category
+        applyFilterAndSort()
+    }
+
     fun setSort(sort: CatalogSort) {
         _sort.value = sort
+        applyFilterAndSort()
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
         applyFilterAndSort()
     }
 
     private fun applyFilterAndSort() {
         var items = allItems
         _channelFilter.value?.let { channel -> items = items.filter { it.channel == channel } }
+        _categoryFilter.value?.let { category -> items = items.filter { it.category == category } }
+        _searchQuery.value.trim().takeIf { it.isNotEmpty() }?.let { query ->
+            items = items.filter { it.title.contains(query, ignoreCase = true) }
+        }
         items = when (_sort.value) {
             CatalogSort.POPULAR -> items.sortedByDescending { it.view_count }
             CatalogSort.LATEST -> items.sortedByDescending { it.timestamp }

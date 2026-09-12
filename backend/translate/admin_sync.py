@@ -33,7 +33,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from catalog import CHANNELS, MAX_DURATION_SECONDS, RECENT_CHECK_COUNT
-from catalog import fetch_recent_video_ids, fetch_video_details
+from catalog import classify_category, fetch_recent_video_ids, fetch_video_details
 
 SERVER_URL = "https://13-218-170-114.sslip.io"
 TOKEN_PATH = Path.home() / ".secrets" / "englishbite_admin_token.txt"
@@ -91,6 +91,7 @@ def _upload(token: str, item: dict, audio_path: Path) -> None:
                 "duration": item["duration"],
                 "upload_date": item.get("upload_date") or "",
                 "timestamp": item["timestamp"],
+                "category": item["category"],
             },
             files={"audio": (audio_path.name, f)},
             timeout=300,
@@ -139,15 +140,17 @@ def sync() -> None:
                 continue
 
             thumbnails = info.get("thumbnails") or []
+            title = info.get("title") or ""
             item = {
                 "video_id": video_id,
-                "title": info.get("title"),
+                "title": title,
                 "channel": channel_name,
                 "thumbnail": thumbnails[-1]["url"] if thumbnails else None,
                 "view_count": info.get("view_count") or 0,
                 "duration": duration,
                 "upload_date": info.get("upload_date"),
                 "timestamp": timestamp,
+                "category": classify_category(title),
             }
             try:
                 _upload(token, item, audio_path)

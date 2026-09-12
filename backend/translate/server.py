@@ -101,6 +101,7 @@ async def admin_ingest(
     duration: int = Form(0),
     upload_date: str = Form(""),
     timestamp: int = Form(0),
+    category: str = Form("사회"),
     audio: UploadFile = File(...),
     x_admin_token: str | None = Header(None),
 ):
@@ -139,6 +140,7 @@ async def admin_ingest(
         "duration": duration,
         "upload_date": upload_date,
         "timestamp": timestamp,
+        "category": category,
     }
     _job_queue.put((_run_ingest_from_audio, (video_id, audio_path, catalog_entry)))
     return {"status": "processing", "video_id": video_id}

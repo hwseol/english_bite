@@ -21,14 +21,19 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,10 +79,14 @@ private fun formatUploadTime(unixTimestamp: Long): String {
 fun CatalogScreen(
     state: CatalogState,
     channelFilter: String?,
+    categoryFilter: String?,
     sort: CatalogSort,
+    searchQuery: String,
     listState: LazyListState,
     onChannelFilterChange: (String?) -> Unit,
+    onCategoryFilterChange: (String?) -> Unit,
     onSortChange: (CatalogSort) -> Unit,
+    onSearchQueryChange: (String) -> Unit,
     onSelect: (CatalogItem) -> Unit,
     onOpenVocabulary: () -> Unit = {}
 ) {
@@ -91,12 +100,14 @@ fun CatalogScreen(
     // click apart from a plain recomposition.
     var lastSort by remember { mutableStateOf(sort) }
     var lastChannelFilter by remember { mutableStateOf(channelFilter) }
-    LaunchedEffect(sort, channelFilter) {
-        if (sort != lastSort || channelFilter != lastChannelFilter) {
+    var lastCategoryFilter by remember { mutableStateOf(categoryFilter) }
+    LaunchedEffect(sort, channelFilter, categoryFilter) {
+        if (sort != lastSort || channelFilter != lastChannelFilter || categoryFilter != lastCategoryFilter) {
             listState.scrollToItem(0)
         }
         lastSort = sort
         lastChannelFilter = channelFilter
+        lastCategoryFilter = categoryFilter
     }
 
     Column(
@@ -122,6 +133,31 @@ fun CatalogScreen(
             }
         }
 
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchQueryChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            placeholder = { Text("영상 제목 검색") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { onSearchQueryChange("") }) {
+                        Icon(Icons.Default.Clear, contentDescription = "지우기")
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(24.dp),
+            keyboardOptions = KeyboardOptions.Default,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary
+            )
+        )
+
+        Spacer(Modifier.height(12.dp))
+
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(horizontal = 20.dp)
@@ -139,6 +175,30 @@ fun CatalogScreen(
                     selected = channelFilter == channel,
                     onClick = { onChannelFilterChange(channel) },
                     label = { Text(channel) },
+                    colors = chipColors()
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp)
+        ) {
+            item {
+                FilterChip(
+                    selected = categoryFilter == null,
+                    onClick = { onCategoryFilterChange(null) },
+                    label = { Text("모든 주제") },
+                    colors = chipColors()
+                )
+            }
+            items(listOf("정치", "경제", "사회", "스포츠")) { category ->
+                FilterChip(
+                    selected = categoryFilter == category,
+                    onClick = { onCategoryFilterChange(category) },
+                    label = { Text(category) },
                     colors = chipColors()
                 )
             }
@@ -185,9 +245,10 @@ fun CatalogScreen(
 
             is CatalogState.Loaded -> {
                 if (state.items.isEmpty()) {
+                    val hasActiveFilter = channelFilter != null || categoryFilter != null || searchQuery.isNotBlank()
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            "아직 준비된 영상이 없어요",
+                            if (hasActiveFilter) "조건에 맞는 영상이 없어요" else "아직 준비된 영상이 없어요",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
