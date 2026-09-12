@@ -80,6 +80,7 @@ import com.mhmh2.englishbite.data.Idiom
 import com.mhmh2.englishbite.data.Sentence
 import com.mhmh2.englishbite.data.VideoResult
 import com.mhmh2.englishbite.data.Word
+import com.mhmh2.englishbite.playback.PlaybackForegroundService
 import com.mhmh2.englishbite.vocab.SavedIdiomsViewModel
 import com.mhmh2.englishbite.ui.theme.KaraokeHighlightBlue
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
@@ -357,7 +358,8 @@ fun StudyScreen(
     videoTitle: String? = null,
     startSecond: Float? = null,
     isInPip: Boolean = false,
-    onRequestPip: () -> Unit = {}
+    onRequestPip: () -> Unit = {},
+    onVideoEnded: () -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
@@ -502,6 +504,17 @@ fun StudyScreen(
         onDispose { setFullscreen(false) }
     }
 
+    // Keeps the process alive (via a foreground service + its mandatory notification) for as
+    // long as this screen has ever started playing - not tied to isPlaying/paused so the
+    // notification doesn't flicker on every tap-to-pause. Stops the moment the user actually
+    // leaves the video, not just backgrounds the app.
+    DisposableEffect(hasStartedPlaying) {
+        if (hasStartedPlaying) {
+            PlaybackForegroundService.start(context, videoTitle ?: result.video_id)
+        }
+        onDispose { PlaybackForegroundService.stop(context) }
+    }
+
     BackHandler {
         if (isFullscreen) setFullscreen(false) else onBack()
     }
@@ -541,6 +554,11 @@ fun StudyScreen(
                     YouTubePlayerView(ctx).apply {
                         lifecycleOwner.lifecycle.addObserver(this)
                         enableAutomaticInitialization = false
+                        // Without this, the player library itself pauses playback the moment
+                        // the Activity's lifecycle hits ON_STOP (screen off, or backgrounded) -
+                        // the whole point of the foreground service below is to keep playing
+                        // through exactly that.
+                        enableBackgroundPlayback(true)
                         // controls(0) hides YouTube's own control bar entirely - this app now
                         // drives play/pause itself (tap-to-toggle below) and sentence navigation
                         // via its own controls, so YouTube's bar was a second, mostly-redundant
@@ -568,6 +586,9 @@ fun StudyScreen(
                                 }
                                 isPlaying = state == PlayerConstants.PlayerState.PLAYING
                                 isBuffering = state == PlayerConstants.PlayerState.BUFFERING
+                                if (state == PlayerConstants.PlayerState.ENDED) {
+                                    onVideoEnded()
+                                }
                             }
                         }, options)
                     }

@@ -1,6 +1,8 @@
 package com.mhmh2.englishbite
 
+import android.Manifest
 import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
@@ -8,18 +10,22 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Modifier
 import com.mhmh2.englishbite.ui.CatalogScreen
+import com.mhmh2.englishbite.ui.CatalogState
 import com.mhmh2.englishbite.ui.CatalogViewModel
 import com.mhmh2.englishbite.ui.StudyScreen
 import com.mhmh2.englishbite.ui.StudyViewModel
@@ -69,9 +75,23 @@ class MainActivity : ComponentActivity() {
         catalogViewModel.refresh(silent = true)
     }
 
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way -
+            the foreground service for background playback still starts without it; the user
+            just won't see its notification, matching what happens if they deny/revoke it later. */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Needed on API 33+ for the background-playback foreground service's notification to
+        // actually show - asked once up front rather than at the moment a video starts playing,
+        // so it doesn't interrupt someone mid-video.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         setContent {
             EnglishBiteTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -84,16 +104,39 @@ class MainActivity : ComponentActivity() {
                     // entirely, so state remember'd inside it - like a LazyListState created
                     // there - does not survive; this one, above the when, does).
                     val catalogListState = rememberLazyListState()
+                    // Also hoisted: auto-advance needs "what's the next video after this one"
+                    // even while StudyScreen (not CatalogScreen) is the thing on screen.
+                    val catalogState by catalogViewModel.state.collectAsState()
+
+                    fun playVideo(videoId: String, title: String, startSecond: Float? = null) {
+                        currentVideoTitle = title
+                        pendingStartSecond = startSecond
+                        studyViewModel.submitUrl("https://www.youtube.com/watch?v=$videoId")
+                    }
+
+                    fun playNextAfter(videoId: String) {
+                        val items = (catalogState as? CatalogState.Loaded)?.items ?: return
+                        val nextIndex = items.indexOfFirst { it.video_id == videoId } + 1
+                        items.getOrNull(nextIndex)?.let { playVideo(it.video_id, it.title) }
+                    }
 
                     when (val current = ingestState) {
-                        is UiState.Success -> StudyScreen(
-                            result = current.result,
-                            onBack = { studyViewModel.reset() },
-                            videoTitle = currentVideoTitle,
-                            startSecond = pendingStartSecond,
-                            isInPip = isInPip,
-                            onRequestPip = ::enterPipMode
-                        )
+                        // Keyed on video_id: auto-advance moves straight from one Success state
+                        // to another (same UiState subtype, different video) - without this key,
+                        // Compose treats that as the same StudyScreen instance and never re-runs
+                        // the YouTubePlayerView's factory, so the player would just keep showing
+                        // whatever video it first loaded.
+                        is UiState.Success -> key(current.result.video_id) {
+                            StudyScreen(
+                                result = current.result,
+                                onBack = { studyViewModel.reset() },
+                                videoTitle = currentVideoTitle,
+                                startSecond = pendingStartSecond,
+                                isInPip = isInPip,
+                                onRequestPip = ::enterPipMode,
+                                onVideoEnded = { playNextAfter(current.result.video_id) }
+                            )
+                        }
 
                         else -> {
                             if (showVocabulary) {

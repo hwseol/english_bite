@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#FFFFFF">
+    <!-- Same speech-bubble-with-a-bite shape as the launcher icon, simplified to a single
+         white silhouette - notification small icons are rendered as an alpha mask, so only
+         the shape (not the color) actually shows. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,26 L78,26 A10,10 0 0 1 88,36 L88,64 A10,10 0 0 1 78,74 L44,74 L30,88 L34,74 L30,74 A10,10 0 0 1 20,64 L20,36 A10,10 0 0 1 30,26 Z" />
+</vector>
