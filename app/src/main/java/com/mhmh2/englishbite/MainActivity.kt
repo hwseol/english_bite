@@ -180,7 +180,6 @@ class MainActivity : ComponentActivity() {
                                     videoTitle = currentVideoTitle,
                                     startSecond = pendingStartSecond,
                                     isInPip = isInPip,
-                                    onRequestPip = ::enterPipMode,
                                     onVideoEnded = { playNextAfter(current.result.video_id) },
                                     isMinimized = isMinimized,
                                     onMinimize = { isMinimized = true },

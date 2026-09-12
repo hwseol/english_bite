@@ -39,7 +39,8 @@ CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
 # Ordered checked in this sequence, first match wins - a title mentioning both a politician and
 # a stock ticker is far more likely a politics story with a market angle than the reverse, so
-# politics/society go before economy, and sports (rarely ambiguous with the others) last.
+# politics goes before economy. No sports section - not enough of that content among these
+# channels' output to justify its own tab, so a sports headline just falls through to 사회 below.
 CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "정치": (
         "trump", "biden", "president", "senate", "congress", "election", "midterm",
@@ -53,11 +54,6 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
         "gdp", "earnings", "ipo", "nasdaq", "dow", "s&p", "bond", "yield", "trade deal",
         "tariff", "recession", "jobs report", "unemployment", "business", "ceo",
         "billion", "investment", "crypto", "bitcoin", "oil price", "housing market",
-    ),
-    "스포츠": (
-        "nfl", "nba", "mlb", "nhl", "soccer", "football", "basketball", "baseball",
-        "olympic", "world cup", "championship", "tournament", "coach", "athlete",
-        "match", "score", "playoff", "tennis", "golf",
     ),
 }
 

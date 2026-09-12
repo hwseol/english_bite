@@ -194,7 +194,7 @@ fun CatalogScreen(
                     colors = chipColors()
                 )
             }
-            items(listOf("정치", "경제", "사회", "스포츠")) { category ->
+            items(listOf("정치", "경제", "사회")) { category ->
                 FilterChip(
                     selected = categoryFilter == category,
                     onClick = { onCategoryFilterChange(category) },

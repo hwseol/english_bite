@@ -8,6 +8,7 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -41,7 +42,6 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -57,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +69,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
@@ -95,6 +97,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+import kotlinx.coroutines.launch
 
 private fun Context.findActivity(): Activity? {
     var ctx = this
@@ -368,7 +371,6 @@ fun StudyScreen(
     videoTitle: String? = null,
     startSecond: Float? = null,
     isInPip: Boolean = false,
-    onRequestPip: () -> Unit = {},
     onVideoEnded: () -> Unit = {},
     isMinimized: Boolean = false,
     onMinimize: () -> Unit = {},
@@ -405,6 +407,19 @@ fun StudyScreen(
         val player = youTubePlayer ?: return
         if (isPlaying) player.pause() else player.play()
     }
+
+    // Swipe-down-to-minimize needs to visibly track the finger as it happens, not just flip to
+    // the mini-player once some invisible threshold is crossed - on a real high-density phone
+    // (Galaxy S23 and up) a fixed raw-pixel threshold covers a much shorter physical drag than on
+    // a lower-density test device, so with no feedback in between it read as the video almost
+    // vanishing at the slightest touch rather than a deliberate, controllable gesture. The video
+    // now visibly shrinks/fades as this climbs from 0 toward minimizeThresholdPx, and springs
+    // back if released early instead of snapping.
+    val density = LocalDensity.current
+    val dragCoroutineScope = rememberCoroutineScope()
+    val dragOffset = remember { Animatable(0f) }
+    val minimizeThresholdPx = with(density) { 96.dp.toPx() }
+    val dragProgress = (dragOffset.value / minimizeThresholdPx).coerceIn(0f, 1f)
 
     // The last sentence to have started, not "the sentence whose own [start, end) contains
     // now" - a strict end-time cutoff left the subtitle blank for a visibly distracting beat
@@ -571,12 +586,16 @@ fun StudyScreen(
             }
         ) {
         Box(
-            modifier = if (isMinimized) {
+            modifier = (if (isMinimized) {
                 Modifier.height(64.dp).aspectRatio(16f / 9f)
             } else if (isFullscreen || isInPip) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            }).graphicsLayer {
+                scaleX = 1f - dragProgress * 0.35f
+                scaleY = 1f - dragProgress * 0.35f
+                alpha = 1f - dragProgress * 0.15f
             },
             contentAlignment = Alignment.Center
         ) {
@@ -660,18 +679,32 @@ fun StudyScreen(
                         )
                         // Swipe-down-to-minimize (YouTube/Netflix-style) - only in the normal
                         // small view; fullscreen swipe-down is left alone rather than also
-                        // trying to minimize straight out of it in the same gesture.
+                        // trying to minimize straight out of it in the same gesture. totalDrag is
+                        // the plain, synchronous source of truth the threshold check reads: it's
+                        // simple accumulation via a closure var, same as before. dragOffset is a
+                        // separate Animatable only driving the visual (dragProgress above) - kept
+                        // apart so the actual minimize decision never depends on whether an
+                        // animation frame has caught up yet.
                         .then(
                             if (!isFullscreen) {
                                 Modifier.pointerInput(Unit) {
                                     var totalDrag = 0f
                                     detectVerticalDragGestures(
                                         onDragStart = { totalDrag = 0f },
-                                        onVerticalDrag = { change, dragAmount ->
-                                            totalDrag += dragAmount
-                                            if (totalDrag > 80f) {
+                                        onDragEnd = {
+                                            if (totalDrag >= minimizeThresholdPx) {
                                                 onMinimize()
-                                                change.consume()
+                                            }
+                                            dragCoroutineScope.launch { dragOffset.animateTo(0f) }
+                                        },
+                                        onDragCancel = {
+                                            dragCoroutineScope.launch { dragOffset.animateTo(0f) }
+                                        },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            totalDrag = (totalDrag + dragAmount).coerceAtLeast(0f)
+                                            dragCoroutineScope.launch {
+                                                dragOffset.snapTo(totalDrag.coerceAtMost(minimizeThresholdPx))
                                             }
                                         }
                                     )
@@ -697,6 +730,28 @@ fun StudyScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // Enter-fullscreen lives on the video itself (bottom-right, the same spot YouTube's
+            // own player puts it) rather than down in the control row below the subtitles - it's
+            // an action about the video, so reaching it shouldn't require leaving the video. The
+            // matching exit button below is already overlaid the same way once inside fullscreen.
+            if (!isFullscreen && !isInPip && !isMinimized) {
+                IconButton(
+                    onClick = { setFullscreen(true) },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                        .size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "화면 크게",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 
@@ -855,37 +910,17 @@ fun StudyScreen(
                                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.align(Alignment.CenterStart)
                             )
+                            // Nav controls alone now - the system PiP button was redundant with
+                            // the swipe/back-to-minimize gesture above (the in-app mini-player
+                            // covers that need better anyway), and fullscreen moved onto the
+                            // video itself, right where the corresponding exit button already
+                            // lives once you're actually in fullscreen.
                             SentenceNavControls(
                                 onPrevious = ::previousSentence,
                                 onNext = ::nextSentence,
                                 onDarkBackground = false,
                                 modifier = Modifier.align(Alignment.Center)
                             )
-                            // Plain ghost icon buttons, not the filled DepthIconButton treatment -
-                            // PiP/fullscreen are secondary actions used far less often than
-                            // stepping sentences, so they recede instead of competing for
-                            // attention with the blue nav controls in the center.
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                modifier = Modifier.align(Alignment.CenterEnd)
-                            ) {
-                                IconButton(onClick = onRequestPip, modifier = Modifier.size(36.dp)) {
-                                    Icon(
-                                        imageVector = Icons.Default.PictureInPictureAlt,
-                                        contentDescription = "미니 플레이어로 보기",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                IconButton(onClick = { setFullscreen(true) }, modifier = Modifier.size(36.dp)) {
-                                    Icon(
-                                        imageVector = Icons.Default.Fullscreen,
-                                        contentDescription = "화면 크게",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
                         }
                     }
                 } else {
