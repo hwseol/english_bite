@@ -25,12 +25,15 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -560,7 +563,9 @@ fun StudyScreen(
     // video/subtitles a bit of breathing room under the status bar otherwise - the previous
     // Scaffold-based padding was computed but never actually applied to this screen. Minimized
     // mode instead wants just enough height for the mini-bar row - fillMaxSize here would cover
-    // (and block touches meant for) the catalog it's supposed to be floating over.
+    // (and block touches meant for) the catalog it's supposed to be floating over. Its own bottom
+    // inset is handled further down via an explicit Spacer instead of a padding modifier here -
+    // see that Spacer's comment for why.
     Column(
         modifier = modifier.then(
             if (isMinimized) Modifier.fillMaxWidth()
@@ -856,6 +861,20 @@ fun StudyScreen(
                 Icon(imageVector = Icons.Default.Close, contentDescription = "닫기")
             }
         }
+        }
+
+        // A padding modifier on this same Column (or on the modifier MainActivity passes in,
+        // which carries align(BottomCenter) against its own edge-to-edge Box) measured fine but
+        // visibly failed to keep the bar clear of the nav bar on-device - confirmed on the
+        // emulator with a 3-button nav bar, and confirmed via an on-screen debug readout that
+        // WindowInsets.navigationBars itself WAS reporting the correct non-zero value at this
+        // exact point in the tree, so the value was never the problem, only the padding modifier
+        // not translating it into actual layout space here. An explicit Spacer sized to that
+        // inset is unambiguous - it's real, un-collapsible height in the Column's child order -
+        // where a padding modifier on a wrap-content element inside an aligned Box apparently
+        // wasn't.
+        if (isMinimized) {
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
 
         // Hide every custom control/subtitle overlay while in PiP - the floating window is
