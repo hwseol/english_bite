@@ -88,6 +88,7 @@ import com.mhmh2.englishbite.data.VideoResult
 import com.mhmh2.englishbite.data.Word
 import com.mhmh2.englishbite.playback.PlaybackForegroundService
 import com.mhmh2.englishbite.vocab.SavedIdiomsViewModel
+import com.mhmh2.englishbite.ui.theme.BiteBlue
 import com.mhmh2.englishbite.ui.theme.KaraokeHighlightBlue
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
@@ -277,8 +278,12 @@ private fun SentenceNavControls(
     onDarkBackground: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val secondaryBg = if (onDarkBackground) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant
-    val secondaryTint = if (onDarkBackground) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+    // Tinted with the brand blue rather than a neutral gray - these two are the single most-used
+    // control on the whole screen (stepping sentence by sentence is the core of how this app is
+    // used), so they read as the primary action instead of blending in with secondary ones like
+    // fullscreen/PiP.
+    val secondaryBg = if (onDarkBackground) BiteBlue.copy(alpha = 0.32f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+    val secondaryTint = if (onDarkBackground) Color.White else MaterialTheme.colorScheme.primary
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -856,15 +861,15 @@ fun StudyScreen(
                                 onDarkBackground = false,
                                 modifier = Modifier.align(Alignment.Center)
                             )
+                            // Plain ghost icon buttons, not the filled DepthIconButton treatment -
+                            // PiP/fullscreen are secondary actions used far less often than
+                            // stepping sentences, so they recede instead of competing for
+                            // attention with the blue nav controls in the center.
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
                                 modifier = Modifier.align(Alignment.CenterEnd)
                             ) {
-                                DepthIconButton(
-                                    onClick = onRequestPip,
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    size = 36.dp
-                                ) {
+                                IconButton(onClick = onRequestPip, modifier = Modifier.size(36.dp)) {
                                     Icon(
                                         imageVector = Icons.Default.PictureInPictureAlt,
                                         contentDescription = "미니 플레이어로 보기",
@@ -872,11 +877,7 @@ fun StudyScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                DepthIconButton(
-                                    onClick = { setFullscreen(true) },
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    size = 36.dp
-                                ) {
+                                IconButton(onClick = { setFullscreen(true) }, modifier = Modifier.size(36.dp)) {
                                     Icon(
                                         imageVector = Icons.Default.Fullscreen,
                                         contentDescription = "화면 크게",
