@@ -2,10 +2,10 @@ package com.mhmh2.englishbite.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Brand accent - a warm coral ("bite" into something appetizing), distinct from the
-// red/black palettes of Netflix/YouTube while sitting in the same energetic family.
-val BiteCoral = Color(0xFFFF6B4A)
-val BiteCoralDim = Color(0xFFCC5539)
+// Brand accent - a confident, saturated blue (trustworthy, "big tech" feel per direct
+// feedback) rather than the original warm coral.
+val BiteBlue = Color(0xFF2F7DFF)
+val BiteBlueDim = Color(0xFF1E56B8)
 
 // Dark, streaming-app-style neutrals. Slightly lifted off pure black (like Netflix/YouTube
 // dark surfaces) so text and card edges stay readable.
@@ -19,8 +19,7 @@ val TextSecondary = Color(0xFFA8A8B3)
 
 val ErrorRed = Color(0xFFFF5449)
 
-// Karaoke word-highlight color - kept separate from the brand accent (BiteCoral) rather than
-// reusing it: a cool blue reads more clearly as "spoken so far" against both the dark video
-// scrim and the app's own dark surfaces than the warm coral did, and doesn't visually compete
-// with the idiom badges/buttons that already use the accent color for something else.
-val KaraokeHighlightBlue = Color(0xFF4FA8FF)
+// Karaoke word-highlight color - a lighter, cyan-leaning blue kept distinct from the brand
+// accent (BiteBlue) so spoken-word highlighting still reads as its own thing against buttons/
+// badges that use the accent color, even though both are now in the same blue family.
+val KaraokeHighlightBlue = Color(0xFF6FD8FF)

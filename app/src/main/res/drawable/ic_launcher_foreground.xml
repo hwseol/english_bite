@@ -5,7 +5,7 @@
     android:viewportHeight="108">
     <!-- Speech bubble ("English") with a bite taken out of it ("Bite") -->
     <path
-        android:fillColor="#FF6B4A"
+        android:fillColor="#2F7DFF"
         android:pathData="M30,26 L78,26 A10,10 0 0 1 88,36 L88,64 A10,10 0 0 1 78,74 L44,74 L30,88 L34,74 L30,74 A10,10 0 0 1 20,64 L20,36 A10,10 0 0 1 30,26 Z" />
     <!-- Bite notch, cut using the background color -->
     <path

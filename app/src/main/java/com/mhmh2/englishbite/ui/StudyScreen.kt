@@ -8,9 +8,12 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +39,6 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,7 +48,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -56,7 +57,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -65,6 +69,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -206,9 +211,42 @@ private fun IdiomBadge(
     }
 }
 
-/** Tapping the line itself also repeats it (seeks back to its start) - on top of the explicit
- * prev/repeat/next controls below, since the whole point is not needing to aim for a small
- * button when the sentence you just heard is still in your ear. */
+/** A circular icon button with a physical "pressed in" feel - scales down and its shadow
+ * flattens while held, rebounding on release - instead of a flat, static filled circle. The
+ * kind of tactile micro-interaction big-tech apps (Google, Instagram) bake into every tappable
+ * control, that a plain IconButton-on-a-colored-background doesn't have on its own. */
+@Composable
+private fun DepthIconButton(
+    onClick: () -> Unit,
+    containerColor: Color,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.87f else 1f, label = "buttonScale")
+    val shadowElevation by animateDpAsState(if (pressed) 1.dp else 7.dp, label = "buttonElevation")
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .shadow(elevation = shadowElevation, shape = CircleShape, clip = false)
+            .clip(CircleShape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(containerColor.copy(alpha = (containerColor.alpha + 0.12f).coerceAtMost(1f)), containerColor)
+                )
+            )
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+        content = { content() }
+    )
+}
+
+/** Tapping the line itself also repeats it (seeks back to its start) - the whole point is not
+ * needing to aim for a small button when the sentence you just heard is still in your ear. */
 @Composable
 private fun RepeatableSentence(
     words: List<Word>,
@@ -230,58 +268,40 @@ private fun RepeatableSentence(
     )
 }
 
-/** Explicit transport controls for stepping between sentences - previous/repeat/next, each
- * seeking the video and keeping it playing. More discoverable and easier to hit than relying
- * on tapping text alone, especially for "go back one" which has no text of its own to tap. */
+/** Explicit transport controls for stepping between sentences - previous/next, each seeking
+ * the video and keeping it playing. More discoverable and easier to hit than relying on tapping
+ * text alone, especially for "go back one" which has no text of its own to tap. There used to be
+ * a third, center "repeat" button here, but tapping the sentence text itself already does the
+ * exact same seek-to-start - a dedicated button for it was pure redundancy. */
 @Composable
 private fun SentenceNavControls(
     onPrevious: () -> Unit,
-    onRepeat: () -> Unit,
     onNext: () -> Unit,
     onDarkBackground: Boolean,
     modifier: Modifier = Modifier
 ) {
-    // A classic media-transport layout - prev / (bigger, accented) replay / next - rather than
-    // three identical flat icons floating with no visual hierarchy or sense of being buttons.
-    val secondaryBg = if (onDarkBackground) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant
+    val secondaryBg = if (onDarkBackground) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant
     val secondaryTint = if (onDarkBackground) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
         modifier = modifier
     ) {
-        IconButton(
-            onClick = onPrevious,
-            modifier = Modifier.background(secondaryBg, CircleShape).size(38.dp)
-        ) {
+        DepthIconButton(onClick = onPrevious, containerColor = secondaryBg, size = 42.dp) {
             Icon(
                 imageVector = Icons.Default.SkipPrevious,
                 contentDescription = "이전 문장",
                 tint = secondaryTint,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-        IconButton(
-            onClick = onRepeat,
-            modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).size(48.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Replay,
-                contentDescription = "이 문장 다시 듣기",
-                tint = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier.size(24.dp)
             )
         }
-        IconButton(
-            onClick = onNext,
-            modifier = Modifier.background(secondaryBg, CircleShape).size(38.dp)
-        ) {
+        DepthIconButton(onClick = onNext, containerColor = secondaryBg, size = 42.dp) {
             Icon(
                 imageVector = Icons.Default.SkipNext,
                 contentDescription = "다음 문장",
                 tint = secondaryTint,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
     }
@@ -312,12 +332,23 @@ private fun PlaybackSpeedButton(
     contentColor: Color = Color.White,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.9f else 1f, label = "speedButtonScale")
+    val shadowElevation by animateDpAsState(if (pressed) 1.dp else 5.dp, label = "speedButtonElevation")
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .shadow(elevation = shadowElevation, shape = RoundedCornerShape(16.dp), clip = false)
             .clip(RoundedCornerShape(16.dp))
-            .background(containerColor)
-            .clickable(onClick = onCycle)
+            .background(
+                Brush.verticalGradient(
+                    listOf(containerColor.copy(alpha = (containerColor.alpha + 0.12f).coerceAtMost(1f)), containerColor)
+                )
+            )
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onCycle)
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         Text(
@@ -649,7 +680,6 @@ fun StudyScreen(
                     )
                     SentenceNavControls(
                         onPrevious = ::previousSentence,
-                        onRepeat = ::repeatCurrentSentence,
                         onNext = ::nextSentence,
                         onDarkBackground = true,
                         modifier = Modifier.padding(top = 10.dp)
@@ -712,7 +742,6 @@ fun StudyScreen(
                             )
                             SentenceNavControls(
                                 onPrevious = ::previousSentence,
-                                onRepeat = ::repeatCurrentSentence,
                                 onNext = ::nextSentence,
                                 onDarkBackground = false,
                                 modifier = Modifier.align(Alignment.Center)
@@ -721,11 +750,10 @@ fun StudyScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.align(Alignment.CenterEnd)
                             ) {
-                                IconButton(
+                                DepthIconButton(
                                     onClick = onRequestPip,
-                                    modifier = Modifier
-                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                                        .size(36.dp)
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    size = 36.dp
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.PictureInPictureAlt,
@@ -734,11 +762,10 @@ fun StudyScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
-                                IconButton(
+                                DepthIconButton(
                                     onClick = { setFullscreen(true) },
-                                    modifier = Modifier
-                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                                        .size(36.dp)
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    size = 36.dp
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Fullscreen,

@@ -9,9 +9,9 @@ import androidx.compose.runtime.Composable
 // user's wallpaper, which is what actually reads as "professional" rather than "default
 // Compose starter project."
 private val EnglishBiteColorScheme = darkColorScheme(
-    primary = BiteCoral,
-    onPrimary = Ink900,
-    primaryContainer = BiteCoralDim,
+    primary = BiteBlue,
+    onPrimary = TextPrimary,
+    primaryContainer = BiteBlueDim,
     onPrimaryContainer = TextPrimary,
     secondary = TextSecondary,
     onSecondary = Ink900,
