@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
@@ -23,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.mhmh2.englishbite.ui.CatalogScreen
 import com.mhmh2.englishbite.ui.CatalogState
@@ -99,6 +101,12 @@ class MainActivity : ComponentActivity() {
                     var currentVideoTitle by remember { mutableStateOf<String?>(null) }
                     var pendingStartSecond by remember { mutableStateOf<Float?>(null) }
                     var showVocabulary by remember { mutableStateOf(false) }
+                    // The mini-player: back (or a swipe-down, from StudyScreen) sets this instead
+                    // of tearing the video down, so picking something else off the catalog while
+                    // it's playing small is possible - StudyScreen itself keeps running the same
+                    // YouTubePlayer instance underneath regardless of this flag; see its own
+                    // comment on why the AndroidView call site can't be branched on it directly.
+                    var isMinimized by remember { mutableStateOf(false) }
                     // Hoisted above the when() so it survives being navigated away from and
                     // back to (a StudyScreen visit removes CatalogScreen from composition
                     // entirely, so state remember'd inside it - like a LazyListState created
@@ -111,6 +119,8 @@ class MainActivity : ComponentActivity() {
                     fun playVideo(videoId: String, title: String, startSecond: Float? = null) {
                         currentVideoTitle = title
                         pendingStartSecond = startSecond
+                        isMinimized = false // a freshly-picked video always opens full, even if
+                                            // something else was playing minimized a moment ago
                         studyViewModel.submitUrl("https://www.youtube.com/watch?v=$videoId")
                     }
 
@@ -120,34 +130,19 @@ class MainActivity : ComponentActivity() {
                         items.getOrNull(nextIndex)?.let { playVideo(it.video_id, it.title) }
                     }
 
-                    when (val current = ingestState) {
-                        // Keyed on video_id: auto-advance moves straight from one Success state
-                        // to another (same UiState subtype, different video) - without this key,
-                        // Compose treats that as the same StudyScreen instance and never re-runs
-                        // the YouTubePlayerView's factory, so the player would just keep showing
-                        // whatever video it first loaded.
-                        is UiState.Success -> key(current.result.video_id) {
-                            StudyScreen(
-                                result = current.result,
-                                onBack = { studyViewModel.reset() },
-                                videoTitle = currentVideoTitle,
-                                startSecond = pendingStartSecond,
-                                isInPip = isInPip,
-                                onRequestPip = ::enterPipMode,
-                                onVideoEnded = { playNextAfter(current.result.video_id) }
-                            )
-                        }
-
-                        else -> {
+                    val current = ingestState
+                    Box(Modifier.fillMaxSize()) {
+                        // Catalog/vocab sits underneath whenever there's no video loaded at all,
+                        // or the loaded one has been minimized - not an else-branch of the
+                        // Success check below, since both can be true/visible at once.
+                        if (current !is UiState.Success || isMinimized) {
                             if (showVocabulary) {
                                 BackHandler { showVocabulary = false }
                                 VocabularyScreen(
                                     onBack = { showVocabulary = false },
                                     onSelect = { item ->
                                         showVocabulary = false
-                                        currentVideoTitle = item.videoTitle
-                                        pendingStartSecond = item.sentenceStart.toFloat()
-                                        studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.videoId}")
+                                        playVideo(item.videoId, item.videoTitle, item.sentenceStart.toFloat())
                                     }
                                 )
                             } else {
@@ -166,12 +161,35 @@ class MainActivity : ComponentActivity() {
                                     onCategoryFilterChange = catalogViewModel::setCategoryFilter,
                                     onSortChange = catalogViewModel::setSort,
                                     onSearchQueryChange = catalogViewModel::setSearchQuery,
-                                    onSelect = { item ->
-                                        currentVideoTitle = item.title
-                                        pendingStartSecond = null
-                                        studyViewModel.submitUrl("https://www.youtube.com/watch?v=${item.video_id}")
-                                    },
+                                    onSelect = { item -> playVideo(item.video_id, item.title) },
                                     onOpenVocabulary = { showVocabulary = true }
+                                )
+                            }
+                        }
+
+                        // Keyed on video_id: auto-advance (or picking a new video while one is
+                        // already minimized) moves straight from one Success state to another
+                        // (same UiState subtype, different video) - without this key, Compose
+                        // treats that as the same StudyScreen instance and never re-runs the
+                        // YouTubePlayerView's factory, so the player would just keep showing
+                        // whatever video it first loaded.
+                        if (current is UiState.Success) {
+                            key(current.result.video_id) {
+                                StudyScreen(
+                                    result = current.result,
+                                    videoTitle = currentVideoTitle,
+                                    startSecond = pendingStartSecond,
+                                    isInPip = isInPip,
+                                    onRequestPip = ::enterPipMode,
+                                    onVideoEnded = { playNextAfter(current.result.video_id) },
+                                    isMinimized = isMinimized,
+                                    onMinimize = { isMinimized = true },
+                                    onExpand = { isMinimized = false },
+                                    onClose = {
+                                        isMinimized = false
+                                        studyViewModel.reset()
+                                    },
+                                    modifier = if (isMinimized) Modifier.align(Alignment.BottomCenter) else Modifier
                                 )
                             }
                         }

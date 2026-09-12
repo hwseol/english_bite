@@ -12,6 +12,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,10 +35,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -61,6 +65,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -69,6 +74,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -354,12 +360,16 @@ private fun PlaybackSpeedButton(
 @Composable
 fun StudyScreen(
     result: VideoResult,
-    onBack: () -> Unit,
     videoTitle: String? = null,
     startSecond: Float? = null,
     isInPip: Boolean = false,
     onRequestPip: () -> Unit = {},
-    onVideoEnded: () -> Unit = {}
+    onVideoEnded: () -> Unit = {},
+    isMinimized: Boolean = false,
+    onMinimize: () -> Unit = {},
+    onExpand: () -> Unit = {},
+    onClose: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
@@ -515,21 +525,50 @@ fun StudyScreen(
         onDispose { PlaybackForegroundService.stop(context) }
     }
 
+    // Minimized takes priority: back from a minimized mini-player closes it outright rather
+    // than trying to re-expand first - the mini-player bar itself (tap to expand) is already
+    // right there if that's what was wanted instead.
     BackHandler {
-        if (isFullscreen) setFullscreen(false) else onBack()
+        when {
+            isFullscreen -> setFullscreen(false)
+            isMinimized -> onClose()
+            else -> onMinimize()
+        }
     }
 
     // Collapses to zero automatically once the bars are hidden in fullscreen, and gives the
     // video/subtitles a bit of breathing room under the status bar otherwise - the previous
-    // Scaffold-based padding was computed but never actually applied to this screen.
+    // Scaffold-based padding was computed but never actually applied to this screen. Minimized
+    // mode instead wants just enough height for the mini-bar row - fillMaxSize here would cover
+    // (and block touches meant for) the catalog it's supposed to be floating over.
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
+        modifier = modifier.then(
+            if (isMinimized) Modifier.fillMaxWidth()
+            else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
+        )
     ) {
+        // Wrapping the video Box in this Row - unconditionally, in every mode - rather than
+        // branching the AndroidView itself between a "full" and "mini" composable is what lets
+        // the exact same YouTubePlayerView instance (and its live playback) survive minimizing:
+        // Compose identifies a composable by its position in this structure, and putting the
+        // AndroidView inside two different branches of an if/else would tear down and recreate
+        // it - a fresh, reloaded-from-0 player - every time isMinimized flipped.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = if (isMinimized) {
+                Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(onClick = onExpand)
+            } else {
+                Modifier
+            }
+        ) {
         Box(
-            modifier = if (isFullscreen || isInPip) {
+            modifier = if (isMinimized) {
+                Modifier.height(64.dp).aspectRatio(16f / 9f)
+            } else if (isFullscreen || isInPip) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -542,8 +581,9 @@ fun StudyScreen(
                 // video gets cropped/zoomed and, since the crop pushes the player's own control
                 // bar past the visible edge, YouTube's controls appear to vanish along with it.
                 // In PiP the window itself is already locked to 16:9 (see MainActivity's
-                // PictureInPictureParams), so a plain fill is fine there.
-                modifier = if (isInPip) {
+                // PictureInPictureParams), so a plain fill is fine there - same for the small
+                // fixed-aspect-ratio box the mini-player gives it.
+                modifier = if (isInPip || isMinimized) {
                     Modifier.fillMaxSize()
                 } else if (isFullscreen) {
                     Modifier.fillMaxHeight().aspectRatio(16f / 9f)
@@ -602,7 +642,7 @@ fun StudyScreen(
             // (channel branding, a suggested-video card, a share icon) - there's no public
             // parameter to turn that off, so a solid scrim on top hides it instead, with our
             // own play icon as the only thing the viewer actually sees.
-            if (!isInPip) {
+            if (!isInPip && !isMinimized) {
                 val paused = hasStartedPlaying && !isPlaying
                 Box(
                     modifier = Modifier
@@ -612,6 +652,26 @@ fun StudyScreen(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
                             onClick = ::togglePlayback
+                        )
+                        // Swipe-down-to-minimize (YouTube/Netflix-style) - only in the normal
+                        // small view; fullscreen swipe-down is left alone rather than also
+                        // trying to minimize straight out of it in the same gesture.
+                        .then(
+                            if (!isFullscreen) {
+                                Modifier.pointerInput(Unit) {
+                                    var totalDrag = 0f
+                                    detectVerticalDragGestures(
+                                        onDragStart = { totalDrag = 0f },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            totalDrag += dragAmount
+                                            if (totalDrag > 80f) {
+                                                onMinimize()
+                                                change.consume()
+                                            }
+                                        }
+                                    )
+                                }
+                            } else Modifier
                         ),
                     contentAlignment = Alignment.Center
                 ) {
@@ -718,9 +778,30 @@ fun StudyScreen(
             }
         }
 
+        if (isMinimized) {
+            Text(
+                text = videoTitle ?: result.video_id,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+            )
+            IconButton(onClick = ::togglePlayback) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "일시정지" else "재생"
+                )
+            }
+            IconButton(onClick = onClose) {
+                Icon(imageVector = Icons.Default.Close, contentDescription = "닫기")
+            }
+        }
+        }
+
         // Hide every custom control/subtitle overlay while in PiP - the floating window is
         // tiny, only shows the video itself, and none of this UI would be usable in it anyway.
-        if (!isInPip) {
+        // Minimized has none of this either - the mini-bar row above is the entire UI then.
+        if (!isMinimized && !isInPip) {
         if (!isFullscreen) {
             Box(
                 modifier = Modifier
