@@ -8,7 +8,6 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -60,7 +59,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,7 +98,6 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
-import kotlinx.coroutines.launch
 
 private fun Context.findActivity(): Activity? {
     var ctx = this
@@ -411,18 +408,15 @@ fun StudyScreen(
         if (isPlaying) player.pause() else player.play()
     }
 
-    // Swipe-down-to-minimize needs to visibly track the finger as it happens, not just flip to
-    // the mini-player once some invisible threshold is crossed - on a real high-density phone
-    // (Galaxy S23 and up) a fixed raw-pixel threshold covers a much shorter physical drag than on
-    // a lower-density test device, so with no feedback in between it read as the video almost
-    // vanishing at the slightest touch rather than a deliberate, controllable gesture. The video
-    // now visibly shrinks/fades as this climbs from 0 toward minimizeThresholdPx, and springs
-    // back if released early instead of snapping.
+    // Swipe-down-to-minimize's threshold in dp, not a fixed raw-pixel count - on a real
+    // high-density phone (Galaxy S23 and up) a fixed pixel count covers a much shorter physical
+    // drag than on a lower-density test device, which read as the video minimizing at the
+    // slightest touch. An earlier version also shrank/faded the video live as the drag
+    // approached this, for visible feedback before the threshold - removed on request: it read
+    // as the video sliding/shrinking away rather than a clean, direct switch to the mini-player,
+    // so the switch now just happens outright the moment the drag clears the threshold.
     val density = LocalDensity.current
-    val dragCoroutineScope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
     val minimizeThresholdPx = with(density) { 96.dp.toPx() }
-    val dragProgress = (dragOffset.value / minimizeThresholdPx).coerceIn(0f, 1f)
 
     // The last sentence to have started, not "the sentence whose own [start, end) contains
     // now" - a strict end-time cutoff left the subtitle blank for a visibly distracting beat
@@ -597,16 +591,12 @@ fun StudyScreen(
             }
         ) {
         Box(
-            modifier = (if (isMinimized) {
+            modifier = if (isMinimized) {
                 Modifier.height(64.dp).aspectRatio(16f / 9f)
             } else if (isFullscreen || isInPip) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-            }).graphicsLayer {
-                scaleX = 1f - dragProgress * 0.35f
-                scaleY = 1f - dragProgress * 0.35f
-                alpha = 1f - dragProgress * 0.15f
             },
             contentAlignment = Alignment.Center
         ) {
@@ -690,12 +680,10 @@ fun StudyScreen(
                         )
                         // Swipe-down-to-minimize (YouTube/Netflix-style) - only in the normal
                         // small view; fullscreen swipe-down is left alone rather than also
-                        // trying to minimize straight out of it in the same gesture. totalDrag is
-                        // the plain, synchronous source of truth the threshold check reads: it's
-                        // simple accumulation via a closure var, same as before. dragOffset is a
-                        // separate Animatable only driving the visual (dragProgress above) - kept
-                        // apart so the actual minimize decision never depends on whether an
-                        // animation frame has caught up yet.
+                        // trying to minimize straight out of it in the same gesture. A plain
+                        // accumulation via a closure var, checked once the gesture ends - no
+                        // visual change while dragging, so clearing the threshold switches
+                        // straight to the mini-player instead of easing into it.
                         .then(
                             if (!isFullscreen) {
                                 Modifier.pointerInput(Unit) {
@@ -706,17 +694,10 @@ fun StudyScreen(
                                             if (totalDrag >= minimizeThresholdPx) {
                                                 onMinimize()
                                             }
-                                            dragCoroutineScope.launch { dragOffset.animateTo(0f) }
-                                        },
-                                        onDragCancel = {
-                                            dragCoroutineScope.launch { dragOffset.animateTo(0f) }
                                         },
                                         onVerticalDrag = { change, dragAmount ->
                                             change.consume()
                                             totalDrag = (totalDrag + dragAmount).coerceAtLeast(0f)
-                                            dragCoroutineScope.launch {
-                                                dragOffset.snapTo(totalDrag.coerceAtMost(minimizeThresholdPx))
-                                            }
                                         }
                                     )
                                 }
