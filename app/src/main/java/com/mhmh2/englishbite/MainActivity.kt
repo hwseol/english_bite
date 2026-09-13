@@ -188,7 +188,10 @@ class MainActivity : ComponentActivity() {
                                         isMinimized = false
                                         studyViewModel.reset()
                                     },
-                                    modifier = if (isMinimized) Modifier.align(Alignment.BottomCenter) else Modifier
+                                    // Bottom-end (a corner), not bottom-center - matches the
+                                    // small floating-widget shape/position YouTube's own
+                                    // in-app mini-player uses, not a full-width bar.
+                                    modifier = if (isMinimized) Modifier.align(Alignment.BottomEnd) else Modifier
                                 )
                             }
                         }

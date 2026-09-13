@@ -54,6 +54,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -386,6 +387,7 @@ fun StudyScreen(
     var currentSecond by remember { mutableFloatStateOf(0f) }
     var isFullscreen by remember { mutableStateOf(false) }
     var youTubePlayer by remember { mutableStateOf<YouTubePlayer?>(null) }
+    var playerViewRef by remember { mutableStateOf<YouTubePlayerView?>(null) }
     // currentSecond starts at 0f before any real onCurrentSecond callback has arrived, which
     // would otherwise immediately match a sentence whose own start is 0 (very common - dialogue
     // beginning right at the first frame) and show its text before the video has even started
@@ -556,13 +558,13 @@ fun StudyScreen(
     // Collapses to zero automatically once the bars are hidden in fullscreen, and gives the
     // video/subtitles a bit of breathing room under the status bar otherwise - the previous
     // Scaffold-based padding was computed but never actually applied to this screen. Minimized
-    // mode instead wants just enough height for the mini-bar row - fillMaxSize here would cover
+    // mode instead just wraps the small floating widget's own size - fillMaxSize here would cover
     // (and block touches meant for) the catalog it's supposed to be floating over. Its own bottom
     // inset is handled further down via an explicit Spacer instead of a padding modifier here -
     // see that Spacer's comment for why.
     Column(
         modifier = modifier.then(
-            if (isMinimized) Modifier.fillMaxWidth()
+            if (isMinimized) Modifier.padding(end = 16.dp)
             else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         )
     ) {
@@ -575,16 +577,15 @@ fun StudyScreen(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = if (isMinimized) {
-                // A floating rounded card with margin on all sides (like a widget/notification
-                // card), not a bar flush against the screen edges - the user specifically asked
-                // for this style over the previous edge-to-edge bar.
+                // A small floating corner widget - the video itself, at a fixed small size, with
+                // its own controls overlaid directly on top of it - matching how YouTube's own
+                // in-app mini-player looks and behaves (not a full-width bar with a separate
+                // title/controls strip next to the thumbnail).
                 Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                    .height(64.dp)
-                    .shadow(elevation = 10.dp, shape = RoundedCornerShape(20.dp), clip = false)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .width(140.dp)
+                    .aspectRatio(16f / 9f)
+                    .shadow(elevation = 10.dp, shape = RoundedCornerShape(16.dp), clip = false)
+                    .clip(RoundedCornerShape(16.dp))
                     .clickable(onClick = onExpand)
             } else {
                 Modifier
@@ -592,7 +593,7 @@ fun StudyScreen(
         ) {
         Box(
             modifier = if (isMinimized) {
-                Modifier.height(64.dp).aspectRatio(16f / 9f)
+                Modifier.fillMaxSize().background(Color.Black)
             } else if (isFullscreen || isInPip) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else {
@@ -657,8 +658,34 @@ fun StudyScreen(
                             }
                         }, options)
                     }
-                }
+                },
+                // Only captures the view reference - cheap even though update() re-runs on every
+                // recomposition (currentSecond changes every frame during playback), since writing
+                // the same YouTubePlayerView instance back into this state is a no-op past the
+                // first call. The actual fix below runs from a LaunchedEffect keyed on isMinimized
+                // instead, specifically so it does NOT run on every one of those recompositions.
+                update = { view -> playerViewRef = view }
             )
+
+            // Shrinking straight from fullscreen width down to the small 140dp corner widget can
+            // leave a stray sliver of the WebView's frame duplicated near the top of the screen,
+            // still updating live (a stock ticker inside the video kept ticking in both places) -
+            // a hardware-layer compositing artifact, not a one-off stale frame, since a plain
+            // requestLayout() or a GONE/VISIBLE toggle only cleared it momentarily before it came
+            // back once real content resumed drawing. Forcing this view onto a software-rendered
+            // layer while minimized sidesteps the hardware layer entirely; switching back to the
+            // default (hardware, when supported) once expanded keeps full-size playback smooth,
+            // since only the tiny corner widget needs this workaround. Keyed on isMinimized
+            // specifically (not e.g. Unit) so this runs only on that transition, never on the
+            // frequent per-second recompositions from currentSecond during playback.
+            LaunchedEffect(isMinimized) {
+                val view = playerViewRef ?: return@LaunchedEffect
+                view.setLayerType(
+                    if (isMinimized) android.view.View.LAYER_TYPE_SOFTWARE else android.view.View.LAYER_TYPE_NONE,
+                    null
+                )
+                view.requestLayout()
+            }
 
             // Tap-anywhere-to-toggle playback, in both the small embedded view and fullscreen -
             // safe to sit right over the video now that YouTube's own control bar is off
@@ -721,6 +748,39 @@ fun StudyScreen(
                                 modifier = Modifier.size(40.dp)
                             )
                         }
+                    }
+                }
+            }
+
+            // Pause/play and close, overlaid directly on the small floating video itself (top
+            // corner, small semi-transparent circles) rather than laid out beside it in a bar -
+            // matching YouTube's own in-app mini-player.
+            if (isMinimized) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+                ) {
+                    IconButton(
+                        onClick = ::togglePlayback,
+                        modifier = Modifier.size(26.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "일시정지" else "재생",
+                            tint = Color.White,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(26.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "닫기",
+                            tint = Color.White,
+                            modifier = Modifier.size(15.dp)
+                        )
                     }
                 }
             }
@@ -827,25 +887,6 @@ fun StudyScreen(
                     )
                 }
                 }
-            }
-        }
-
-        if (isMinimized) {
-            Text(
-                text = videoTitle ?: result.video_id,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-            )
-            IconButton(onClick = ::togglePlayback) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "일시정지" else "재생"
-                )
-            }
-            IconButton(onClick = onClose) {
-                Icon(imageVector = Icons.Default.Close, contentDescription = "닫기")
             }
         }
         }
