@@ -168,7 +168,12 @@ class MainActivity : ComponentActivity() {
                                     startSecond = pendingStartSecond,
                                     isInPip = isInPip,
                                     onVideoEnded = { playNextAfter(current.result.video_id) },
-                                    onRequestPip = ::enterPipMode
+                                    onRequestPip = ::enterPipMode,
+                                    // Back needs an actual way back to the catalog - PiP alone
+                                    // left no path to it at all once a video was open, since
+                                    // every back press just floated the same screen in PiP
+                                    // instead of ever navigating anywhere.
+                                    onClose = { studyViewModel.reset() }
                                 )
                             }
                         }

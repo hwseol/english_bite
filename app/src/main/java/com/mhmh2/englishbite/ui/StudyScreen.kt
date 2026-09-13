@@ -370,6 +370,7 @@ fun StudyScreen(
     isInPip: Boolean = false,
     onVideoEnded: () -> Unit = {},
     onRequestPip: () -> Unit = {},
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -567,13 +568,14 @@ fun StudyScreen(
         onDispose { PlaybackForegroundService.stop(context) }
     }
 
-    // Real system PiP, not a custom in-app widget - per user preference after trying the
-    // latter, matching a real PiP window (floats over the home screen and other apps) rather
-    // than the app's own catalog underneath. onUserLeaveHint in MainActivity already calls the
-    // same onRequestPip when leaving the app entirely (home/recents); this is the same action,
-    // just triggered by back/swipe instead of leaving.
+    // Back needs to actually go somewhere - making every back press enter PiP instead left no
+    // way back to the catalog at all once a video was open (PiP floats the same screen; there's
+    // nothing behind it to return to within the app). Real PiP is reached deliberately now -
+    // swipe down on the video, or leaving the app entirely (onUserLeaveHint in MainActivity calls
+    // the same onRequestPip for that) - while back closes the video and returns to the catalog,
+    // like it always did before PiP/mini-player experiments touched this screen at all.
     BackHandler {
-        if (isFullscreen) setFullscreen(false) else onRequestPip()
+        if (isFullscreen) setFullscreen(false) else onClose()
     }
 
     // Collapses to zero automatically once the bars are hidden in fullscreen, and gives the
