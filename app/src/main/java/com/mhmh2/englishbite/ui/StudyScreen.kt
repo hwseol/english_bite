@@ -8,12 +8,10 @@ import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -60,7 +58,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,10 +66,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
@@ -100,7 +95,6 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
-import kotlinx.coroutines.launch
 
 private fun Context.findActivity(): Activity? {
     var ctx = this
@@ -411,19 +405,6 @@ fun StudyScreen(
         if (isPlaying) player.pause() else player.play()
     }
 
-    // Swipe-down-to-minimize needs to visibly track the finger as it happens, not just flip to
-    // the mini-player once some invisible threshold is crossed - on a real high-density phone
-    // (Galaxy S23 and up) a fixed raw-pixel threshold covers a much shorter physical drag than on
-    // a lower-density test device, so with no feedback in between it read as the video almost
-    // vanishing at the slightest touch rather than a deliberate, controllable gesture. The video
-    // now visibly shrinks/fades as this climbs from 0 toward minimizeThresholdPx, and springs
-    // back if released early instead of snapping.
-    val density = LocalDensity.current
-    val dragCoroutineScope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
-    val minimizeThresholdPx = with(density) { 96.dp.toPx() }
-    val dragProgress = (dragOffset.value / minimizeThresholdPx).coerceIn(0f, 1f)
-
     // The last sentence to have started, not "the sentence whose own [start, end) contains
     // now" - a strict end-time cutoff left the subtitle blank for a visibly distracting beat
     // in any gap between sentences (a pause, or just the boundary between two adjacent ones).
@@ -548,6 +529,14 @@ fun StudyScreen(
         onDispose { PlaybackForegroundService.stop(context) }
     }
 
+    // The only way to minimize now - a swipe-down gesture on the video used to do this too, but
+    // it read raw vertical drags starting from right under the status bar, and on a real Samsung
+    // phone (reported on a Galaxy S23) that collided with the OS's own edge/multi-window gestures
+    // in that same area: the app ended up stuck in a small resized window with the home screen
+    // showing through underneath, not our mini-player at all. Back is a plain key event with no
+    // such ambiguity, so it's the only trigger until a swipe gesture can be scoped to a zone that
+    // doesn't overlap whatever OS gesture caused that.
+    //
     // Minimized takes priority: back from a minimized mini-player closes it outright rather
     // than trying to re-expand first - the mini-player bar itself (tap to expand) is already
     // right there if that's what was wanted instead.
@@ -591,16 +580,12 @@ fun StudyScreen(
             }
         ) {
         Box(
-            modifier = (if (isMinimized) {
+            modifier = if (isMinimized) {
                 Modifier.height(64.dp).aspectRatio(16f / 9f)
             } else if (isFullscreen || isInPip) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-            }).graphicsLayer {
-                scaleX = 1f - dragProgress * 0.35f
-                scaleY = 1f - dragProgress * 0.35f
-                alpha = 1f - dragProgress * 0.15f
             },
             contentAlignment = Alignment.Center
         ) {
@@ -681,40 +666,6 @@ fun StudyScreen(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
                             onClick = ::togglePlayback
-                        )
-                        // Swipe-down-to-minimize (YouTube/Netflix-style) - only in the normal
-                        // small view; fullscreen swipe-down is left alone rather than also
-                        // trying to minimize straight out of it in the same gesture. totalDrag is
-                        // the plain, synchronous source of truth the threshold check reads: it's
-                        // simple accumulation via a closure var, same as before. dragOffset is a
-                        // separate Animatable only driving the visual (dragProgress above) - kept
-                        // apart so the actual minimize decision never depends on whether an
-                        // animation frame has caught up yet.
-                        .then(
-                            if (!isFullscreen) {
-                                Modifier.pointerInput(Unit) {
-                                    var totalDrag = 0f
-                                    detectVerticalDragGestures(
-                                        onDragStart = { totalDrag = 0f },
-                                        onDragEnd = {
-                                            if (totalDrag >= minimizeThresholdPx) {
-                                                onMinimize()
-                                            }
-                                            dragCoroutineScope.launch { dragOffset.animateTo(0f) }
-                                        },
-                                        onDragCancel = {
-                                            dragCoroutineScope.launch { dragOffset.animateTo(0f) }
-                                        },
-                                        onVerticalDrag = { change, dragAmount ->
-                                            change.consume()
-                                            totalDrag = (totalDrag + dragAmount).coerceAtLeast(0f)
-                                            dragCoroutineScope.launch {
-                                                dragOffset.snapTo(totalDrag.coerceAtMost(minimizeThresholdPx))
-                                            }
-                                        }
-                                    )
-                                }
-                            } else Modifier
                         ),
                     contentAlignment = Alignment.Center
                 ) {
