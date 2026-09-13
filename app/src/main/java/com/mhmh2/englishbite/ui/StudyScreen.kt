@@ -24,15 +24,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -373,10 +369,7 @@ fun StudyScreen(
     startSecond: Float? = null,
     isInPip: Boolean = false,
     onVideoEnded: () -> Unit = {},
-    isMinimized: Boolean = false,
-    onMinimize: () -> Unit = {},
-    onExpand: () -> Unit = {},
-    onClose: () -> Unit = {},
+    onRequestPip: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -575,56 +568,24 @@ fun StudyScreen(
         onDispose { PlaybackForegroundService.stop(context) }
     }
 
-    // Minimized takes priority: back from a minimized mini-player closes it outright rather
-    // than trying to re-expand first - the mini-player bar itself (tap to expand) is already
-    // right there if that's what was wanted instead.
+    // Real system PiP, not a custom in-app widget - per user preference after trying the
+    // latter, matching a real PiP window (floats over the home screen and other apps) rather
+    // than the app's own catalog underneath. onUserLeaveHint in MainActivity already calls the
+    // same onRequestPip when leaving the app entirely (home/recents); this is the same action,
+    // just triggered by back/swipe instead of leaving.
     BackHandler {
-        when {
-            isFullscreen -> setFullscreen(false)
-            isMinimized -> onClose()
-            else -> onMinimize()
-        }
+        if (isFullscreen) setFullscreen(false) else onRequestPip()
     }
 
     // Collapses to zero automatically once the bars are hidden in fullscreen, and gives the
     // video/subtitles a bit of breathing room under the status bar otherwise - the previous
-    // Scaffold-based padding was computed but never actually applied to this screen. Minimized
-    // mode instead just wraps the small floating widget's own size - fillMaxSize here would cover
-    // (and block touches meant for) the catalog it's supposed to be floating over. Its own bottom
-    // inset is handled further down via an explicit Spacer instead of a padding modifier here -
-    // see that Spacer's comment for why.
+    // Scaffold-based padding was computed but never actually applied to this screen.
     Column(
-        modifier = modifier.then(
-            if (isMinimized) Modifier.padding(end = 16.dp)
-            else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
-        )
+        modifier = modifier.then(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding())
     ) {
-        // Wrapping the video Box in this Row - unconditionally, in every mode - rather than
-        // branching the AndroidView itself between a "full" and "mini" composable is what lets
-        // the exact same YouTubePlayerView instance (and its live playback) survive minimizing:
-        // Compose identifies a composable by its position in this structure, and putting the
-        // AndroidView inside two different branches of an if/else would tear down and recreate
-        // it - a fresh, reloaded-from-0 player - every time isMinimized flipped.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = if (isMinimized) {
-                // A small floating corner widget - the video itself, at a fixed small size, with
-                // its own controls overlaid directly on top of it - matching how YouTube's own
-                // in-app mini-player looks and behaves (not a full-width bar with a separate
-                // title/controls strip next to the thumbnail).
-                Modifier
-                    .width(140.dp)
-                    .aspectRatio(16f / 9f)
-                    .shadow(elevation = 10.dp, shape = RoundedCornerShape(16.dp), clip = false)
-                    .clip(RoundedCornerShape(16.dp))
-            } else {
-                Modifier
-            }
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
-            modifier = if (isMinimized) {
-                Modifier.fillMaxSize().background(Color.Black)
-            } else if (isFullscreen || isInPip) {
+            modifier = if (isFullscreen || isInPip) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -637,9 +598,8 @@ fun StudyScreen(
                 // video gets cropped/zoomed and, since the crop pushes the player's own control
                 // bar past the visible edge, YouTube's controls appear to vanish along with it.
                 // In PiP the window itself is already locked to 16:9 (see MainActivity's
-                // PictureInPictureParams), so a plain fill is fine there - same for the small
-                // fixed-aspect-ratio box the mini-player gives it.
-                modifier = if (isInPip || isMinimized) {
+                // PictureInPictureParams), so a plain fill is fine there.
+                modifier = if (isInPip) {
                     Modifier.fillMaxSize()
                 } else if (isFullscreen) {
                     Modifier.fillMaxHeight().aspectRatio(16f / 9f)
@@ -692,62 +652,25 @@ fun StudyScreen(
                 // Only captures the view reference - cheap even though update() re-runs on every
                 // recomposition (currentSecond changes every frame during playback), since writing
                 // the same YouTubePlayerView instance back into this state is a no-op past the
-                // first call. The actual fix below runs from a LaunchedEffect keyed on isMinimized
+                // first call. The actual fix below runs from a LaunchedEffect keyed on isInPip
                 // instead, specifically so it does NOT run on every one of those recompositions.
                 update = { view -> playerViewRef = view }
             )
 
-            // Shrinking straight from fullscreen width down to the small 140dp corner widget can
-            // leave a stray sliver of the WebView's frame duplicated near the top of the screen,
-            // still updating live (a stock ticker inside the video kept ticking in both places) -
-            // a hardware-layer compositing artifact, not a one-off stale frame, since a plain
-            // requestLayout() or a GONE/VISIBLE toggle only cleared it momentarily before it came
-            // back once real content resumed drawing. Forcing this view onto a software-rendered
-            // layer while minimized sidesteps the hardware layer entirely; switching back to the
-            // default (hardware, when supported) once expanded keeps full-size playback smooth,
-            // since only the tiny corner widget needs this workaround. Keyed on isMinimized
-            // specifically (not e.g. Unit) so this runs only on that transition, never on the
-            // frequent per-second recompositions from currentSecond during playback.
-            LaunchedEffect(isMinimized) {
+            // Entering real PiP resizes this view just as drastically as the old custom mini
+            // widget did, which could leave a stray sliver of the WebView's frame duplicated on
+            // screen, still updating live - a hardware-layer compositing artifact from the sudden
+            // resize, not a one-off stale frame (a plain requestLayout() or a GONE/VISIBLE toggle
+            // only cleared it momentarily before it came back). Forcing this view onto a
+            // software-rendered layer during that transition sidesteps the hardware layer
+            // entirely; switching back to the default once settled keeps normal playback smooth.
+            LaunchedEffect(isInPip) {
                 val view = playerViewRef ?: return@LaunchedEffect
                 view.setLayerType(
-                    if (isMinimized) android.view.View.LAYER_TYPE_SOFTWARE else android.view.View.LAYER_TYPE_NONE,
+                    if (isInPip) android.view.View.LAYER_TYPE_SOFTWARE else android.view.View.LAYER_TYPE_NONE,
                     null
                 )
                 view.requestLayout()
-            }
-
-            // A transparent overlay on top of the AndroidView, exactly like the tap-catcher below
-            // for the normal/fullscreen views - without one, the raw WebView underneath receives
-            // taps and drags directly, and its own native touch handling (deciding whether to
-            // scroll/handle them itself) can keep them from ever reaching a clickable() or
-            // pointerInput() modifier placed only on the outer Row: tap-to-expand and drag-to-
-            // expand both silently did nothing until this was added, confirmed by testing
-            // coordinates that were unambiguously over plain video content, not the icon buttons.
-            if (isMinimized) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            var totalDrag = 0f
-                            val expandThresholdPx = 40.dp.toPx()
-                            detectVerticalDragGestures(
-                                onDragStart = { totalDrag = 0f },
-                                onDragEnd = {
-                                    if (totalDrag <= -expandThresholdPx) onExpand()
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    totalDrag += dragAmount
-                                }
-                            )
-                        }
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() },
-                            onClick = onExpand
-                        )
-                )
             }
 
             // Tap-anywhere-to-toggle playback, in both the small embedded view and fullscreen -
@@ -757,7 +680,7 @@ fun StudyScreen(
             // (channel branding, a suggested-video card, a share icon) - there's no public
             // parameter to turn that off, so a solid scrim on top hides it instead, with our
             // own play icon as the only thing the viewer actually sees.
-            if (!isInPip && !isMinimized) {
+            if (!isInPip) {
                 val paused = hasStartedPlaying && !isPlaying
                 Box(
                     modifier = Modifier
@@ -768,12 +691,10 @@ fun StudyScreen(
                             interactionSource = remember { MutableInteractionSource() },
                             onClick = ::togglePlayback
                         )
-                        // Swipe-down-to-minimize (YouTube/Netflix-style) - only in the normal
-                        // small view; fullscreen swipe-down is left alone rather than also
-                        // trying to minimize straight out of it in the same gesture. A plain
-                        // accumulation via a closure var, checked once the gesture ends - no
-                        // visual change while dragging, so clearing the threshold switches
-                        // straight to the mini-player instead of easing into it.
+                        // Swipe-down-to-PiP (YouTube/Netflix-style) - only in the normal small
+                        // view; fullscreen swipe-down is left alone rather than also trying to
+                        // enter PiP straight out of it in the same gesture. A plain accumulation
+                        // via a closure var, checked once the gesture ends.
                         .then(
                             if (!isFullscreen) {
                                 Modifier.pointerInput(Unit) {
@@ -782,7 +703,7 @@ fun StudyScreen(
                                         onDragStart = { totalDrag = 0f },
                                         onDragEnd = {
                                             if (totalDrag >= minimizeThresholdPx) {
-                                                onMinimize()
+                                                onRequestPip()
                                             }
                                         },
                                         onVerticalDrag = { change, dragAmount ->
@@ -815,44 +736,11 @@ fun StudyScreen(
                 }
             }
 
-            // Pause/play and close, overlaid directly on the small floating video itself (top
-            // corner, small semi-transparent circles) rather than laid out beside it in a bar -
-            // matching YouTube's own in-app mini-player.
-            if (isMinimized) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
-                ) {
-                    IconButton(
-                        onClick = ::togglePlayback,
-                        modifier = Modifier.size(26.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "일시정지" else "재생",
-                            tint = Color.White,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier.size(26.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "닫기",
-                            tint = Color.White,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                }
-            }
-
             // Enter-fullscreen lives on the video itself (bottom-right, the same spot YouTube's
             // own player puts it) rather than down in the control row below the subtitles - it's
             // an action about the video, so reaching it shouldn't require leaving the video. The
             // matching exit button below is already overlaid the same way once inside fullscreen.
-            if (!isFullscreen && !isInPip && !isMinimized) {
+            if (!isFullscreen && !isInPip) {
                 IconButton(
                     onClick = { setFullscreen(true) },
                     modifier = Modifier
@@ -954,24 +842,9 @@ fun StudyScreen(
         }
         }
 
-        // A padding modifier on this same Column (or on the modifier MainActivity passes in,
-        // which carries align(BottomCenter) against its own edge-to-edge Box) measured fine but
-        // visibly failed to keep the bar clear of the nav bar on-device - confirmed on the
-        // emulator with a 3-button nav bar, and confirmed via an on-screen debug readout that
-        // WindowInsets.navigationBars itself WAS reporting the correct non-zero value at this
-        // exact point in the tree, so the value was never the problem, only the padding modifier
-        // not translating it into actual layout space here. An explicit Spacer sized to that
-        // inset is unambiguous - it's real, un-collapsible height in the Column's child order -
-        // where a padding modifier on a wrap-content element inside an aligned Box apparently
-        // wasn't.
-        if (isMinimized) {
-            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
-        }
-
         // Hide every custom control/subtitle overlay while in PiP - the floating window is
         // tiny, only shows the video itself, and none of this UI would be usable in it anyway.
-        // Minimized has none of this either - the mini-bar row above is the entire UI then.
-        if (!isMinimized && !isInPip) {
+        if (!isInPip) {
         if (!isFullscreen) {
             Box(
                 modifier = Modifier
