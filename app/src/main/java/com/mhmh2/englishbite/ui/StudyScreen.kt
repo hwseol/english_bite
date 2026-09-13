@@ -424,10 +424,27 @@ fun StudyScreen(
     // now" - a strict end-time cutoff left the subtitle blank for a visibly distracting beat
     // in any gap between sentences (a pause, or just the boundary between two adjacent ones).
     // Keeping the previous one on screen until the next one actually starts reads much better.
-    val currentIndex: Int = remember(currentSecond, result) {
+    val naturalIndex: Int = remember(currentSecond, result) {
         val t = currentSecond.toDouble()
         result.sentences.indexOfLast { t >= it.start }
     }
+    // currentSecond only updates when the player's onCurrentSecond callback fires, which lags a
+    // real seekTo() by up to its own poll interval - naturalIndex above doesn't reflect a seek
+    // until that next callback arrives. Pressing "previous" twice quickly used to compute both
+    // presses from that same still-stale naturalIndex, so both seeks landed on the identical
+    // target instead of stepping back a second time - reported as the button just repeating the
+    // current sentence no matter how many times it's pressed. lastCommandedIndex overrides the
+    // index immediately on each press (and on the subtitle/idiom this drives) so a second rapid
+    // press steps from where the first one just commanded, not from playback's own lagging idea
+    // of where it is; it's released back to natural tracking once real playback catches up to it.
+    var lastCommandedIndex by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(naturalIndex) {
+        val commanded = lastCommandedIndex
+        if (commanded != null && naturalIndex >= commanded) {
+            lastCommandedIndex = null
+        }
+    }
+    val currentIndex: Int = lastCommandedIndex ?: naturalIndex
     val currentSentence: Sentence? = currentIndex.takeIf { it >= 0 }?.let { result.sentences[it] }
     val currentIdiom: Idiom? = remember(currentIndex, result) {
         if (currentIndex < 0) null else result.idioms.firstOrNull { it.sentence_index == currentIndex + 1 }
@@ -489,9 +506,23 @@ fun StudyScreen(
         player.seekTo(sentence.start.toFloat())
         player.play()
     }
-    fun repeatCurrentSentence() = seekToSentence(currentIndex)
-    fun previousSentence() = seekToSentence(currentIndex - 1)
-    fun nextSentence() = seekToSentence(currentIndex + 1)
+    // Each of these sets lastCommandedIndex before seeking, not after - so if the player's own
+    // position hasn't visibly moved yet by the time the next tap lands, that tap still starts
+    // counting from the target this one just set, not from the pre-seek position.
+    fun repeatCurrentSentence() {
+        lastCommandedIndex = currentIndex
+        seekToSentence(currentIndex)
+    }
+    fun previousSentence() {
+        val target = (currentIndex - 1).coerceAtLeast(0)
+        lastCommandedIndex = target
+        seekToSentence(target)
+    }
+    fun nextSentence() {
+        val target = (currentIndex + 1).coerceAtMost(result.sentences.lastIndex)
+        lastCommandedIndex = target
+        seekToSentence(target)
+    }
 
     fun cyclePlaybackSpeed() {
         speedIndex = (speedIndex + 1) % PLAYBACK_RATES.size
@@ -586,7 +617,6 @@ fun StudyScreen(
                     .aspectRatio(16f / 9f)
                     .shadow(elevation = 10.dp, shape = RoundedCornerShape(16.dp), clip = false)
                     .clip(RoundedCornerShape(16.dp))
-                    .clickable(onClick = onExpand)
             } else {
                 Modifier
             }
@@ -685,6 +715,39 @@ fun StudyScreen(
                     null
                 )
                 view.requestLayout()
+            }
+
+            // A transparent overlay on top of the AndroidView, exactly like the tap-catcher below
+            // for the normal/fullscreen views - without one, the raw WebView underneath receives
+            // taps and drags directly, and its own native touch handling (deciding whether to
+            // scroll/handle them itself) can keep them from ever reaching a clickable() or
+            // pointerInput() modifier placed only on the outer Row: tap-to-expand and drag-to-
+            // expand both silently did nothing until this was added, confirmed by testing
+            // coordinates that were unambiguously over plain video content, not the icon buttons.
+            if (isMinimized) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            var totalDrag = 0f
+                            val expandThresholdPx = 40.dp.toPx()
+                            detectVerticalDragGestures(
+                                onDragStart = { totalDrag = 0f },
+                                onDragEnd = {
+                                    if (totalDrag <= -expandThresholdPx) onExpand()
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    totalDrag += dragAmount
+                                }
+                            )
+                        }
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = onExpand
+                        )
+                )
             }
 
             // Tap-anywhere-to-toggle playback, in both the small embedded view and fullscreen -
@@ -945,29 +1008,31 @@ fun StudyScreen(
                                 )
                             }
                         }
-                        Box(
+                        // One centered control cluster - speed pill and prev/next grouped
+                        // together with a small gap - instead of the speed pill floating alone
+                        // on the far left with a wide empty gap before the centered nav buttons.
+                        // Reads as one deliberately-designed control bar instead of two unrelated
+                        // controls that happened to land in the same row.
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 14.dp)
+                                .padding(top = 14.dp),
                         ) {
+                            Spacer(Modifier.weight(1f))
                             PlaybackSpeedButton(
                                 speedIndex = speedIndex,
                                 onCycle = ::cyclePlaybackSpeed,
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.align(Alignment.CenterStart)
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            // Nav controls alone now - the system PiP button was redundant with
-                            // the swipe/back-to-minimize gesture above (the in-app mini-player
-                            // covers that need better anyway), and fullscreen moved onto the
-                            // video itself, right where the corresponding exit button already
-                            // lives once you're actually in fullscreen.
                             SentenceNavControls(
                                 onPrevious = ::previousSentence,
                                 onNext = ::nextSentence,
-                                onDarkBackground = false,
-                                modifier = Modifier.align(Alignment.Center)
+                                onDarkBackground = false
                             )
+                            Spacer(Modifier.weight(1f))
                         }
                     }
                 } else {
