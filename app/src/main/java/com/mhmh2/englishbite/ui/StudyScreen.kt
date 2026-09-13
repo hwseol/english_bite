@@ -581,9 +581,15 @@ fun StudyScreen(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = if (isMinimized) {
+                // A floating rounded card with margin on all sides (like a widget/notification
+                // card), not a bar flush against the screen edges - the user specifically asked
+                // for this style over the previous edge-to-edge bar.
                 Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
                     .height(64.dp)
+                    .shadow(elevation = 10.dp, shape = RoundedCornerShape(20.dp), clip = false)
+                    .clip(RoundedCornerShape(20.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable(onClick = onExpand)
             } else {
