@@ -380,7 +380,6 @@ fun StudyScreen(
     var currentSecond by remember { mutableFloatStateOf(0f) }
     var isFullscreen by remember { mutableStateOf(false) }
     var youTubePlayer by remember { mutableStateOf<YouTubePlayer?>(null) }
-    var playerViewRef by remember { mutableStateOf<YouTubePlayerView?>(null) }
     // currentSecond starts at 0f before any real onCurrentSecond callback has arrived, which
     // would otherwise immediately match a sentence whose own start is 0 (very common - dialogue
     // beginning right at the first frame) and show its text before the video has even started
@@ -648,30 +647,8 @@ fun StudyScreen(
                             }
                         }, options)
                     }
-                },
-                // Only captures the view reference - cheap even though update() re-runs on every
-                // recomposition (currentSecond changes every frame during playback), since writing
-                // the same YouTubePlayerView instance back into this state is a no-op past the
-                // first call. The actual fix below runs from a LaunchedEffect keyed on isInPip
-                // instead, specifically so it does NOT run on every one of those recompositions.
-                update = { view -> playerViewRef = view }
+                }
             )
-
-            // Entering real PiP resizes this view just as drastically as the old custom mini
-            // widget did, which could leave a stray sliver of the WebView's frame duplicated on
-            // screen, still updating live - a hardware-layer compositing artifact from the sudden
-            // resize, not a one-off stale frame (a plain requestLayout() or a GONE/VISIBLE toggle
-            // only cleared it momentarily before it came back). Forcing this view onto a
-            // software-rendered layer during that transition sidesteps the hardware layer
-            // entirely; switching back to the default once settled keeps normal playback smooth.
-            LaunchedEffect(isInPip) {
-                val view = playerViewRef ?: return@LaunchedEffect
-                view.setLayerType(
-                    if (isInPip) android.view.View.LAYER_TYPE_SOFTWARE else android.view.View.LAYER_TYPE_NONE,
-                    null
-                )
-                view.requestLayout()
-            }
 
             // Tap-anywhere-to-toggle playback, in both the small embedded view and fullscreen -
             // safe to sit right over the video now that YouTube's own control bar is off
