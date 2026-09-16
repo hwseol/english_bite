@@ -131,11 +131,17 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val current = ingestState
+                    // Real PiP overrides the in-app mini-player entirely: pressing Home while
+                    // already minimized used to leave isMinimized true, so the catalog (and the
+                    // small corner widget on top of it) both stayed composed and got scaled down
+                    // together into the already-tiny PiP window - a mini-player floating inside
+                    // PiP, not the plain video PiP is supposed to show. Real PiP always wins here.
+                    val showAsMini = isMinimized && !isInPip
                     Box(Modifier.fillMaxSize()) {
                         // Catalog/vocab sits underneath whenever there's no video loaded at all,
                         // or the loaded one has been minimized - not an else-branch of the
                         // Success check below, since both can be true/visible at once.
-                        if (current !is UiState.Success || isMinimized) {
+                        if (current !is UiState.Success || showAsMini) {
                             if (showVocabulary) {
                                 BackHandler { showVocabulary = false }
                                 VocabularyScreen(
@@ -191,7 +197,7 @@ class MainActivity : ComponentActivity() {
                                     // Bottom-end (a corner), not bottom-center - matches the
                                     // small floating-widget shape/position YouTube's own
                                     // in-app mini-player uses, not a full-width bar.
-                                    modifier = if (isMinimized) Modifier.align(Alignment.BottomEnd) else Modifier
+                                    modifier = if (showAsMini) Modifier.align(Alignment.BottomEnd) else Modifier
                                 )
                             }
                         }

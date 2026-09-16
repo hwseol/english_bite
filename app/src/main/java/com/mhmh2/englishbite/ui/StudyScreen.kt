@@ -586,6 +586,15 @@ fun StudyScreen(
         }
     }
 
+    // Real PiP is its own "small" presentation, driven entirely by the OS window - if the
+    // in-app widget's small-corner styling stays applied underneath while isInPip is also true
+    // (pressing Home while already minimized), the widget shrinks a second time inside the
+    // already-tiny PiP frame instead of the PiP frame just showing the plain video. showAsMini
+    // is what every visual/structural isMinimized branch below actually keys on, so real PiP
+    // always wins and shows the ordinary full-size video - only isMinimized itself (not this)
+    // still decides navigation things like what back should do.
+    val showAsMini = isMinimized && !isInPip
+
     // Collapses to zero automatically once the bars are hidden in fullscreen, and gives the
     // video/subtitles a bit of breathing room under the status bar otherwise - the previous
     // Scaffold-based padding was computed but never actually applied to this screen. Minimized
@@ -595,7 +604,7 @@ fun StudyScreen(
     // see that Spacer's comment for why.
     Column(
         modifier = modifier.then(
-            if (isMinimized) Modifier.padding(end = 16.dp)
+            if (showAsMini) Modifier.padding(end = 16.dp)
             else Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         )
     ) {
@@ -607,7 +616,7 @@ fun StudyScreen(
         // it - a fresh, reloaded-from-0 player - every time isMinimized flipped.
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = if (isMinimized) {
+            modifier = if (showAsMini) {
                 // A small floating corner widget - the video itself, at a fixed small size, with
                 // its own controls overlaid directly on top of it - matching how YouTube's own
                 // in-app mini-player looks and behaves (not a full-width bar with a separate
@@ -622,7 +631,7 @@ fun StudyScreen(
             }
         ) {
         Box(
-            modifier = if (isMinimized) {
+            modifier = if (showAsMini) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else if (isFullscreen || isInPip) {
                 Modifier.fillMaxSize().background(Color.Black)
@@ -639,7 +648,7 @@ fun StudyScreen(
                 // In PiP the window itself is already locked to 16:9 (see MainActivity's
                 // PictureInPictureParams), so a plain fill is fine there - same for the small
                 // fixed-aspect-ratio box the mini-player gives it.
-                modifier = if (isInPip || isMinimized) {
+                modifier = if (isInPip || showAsMini) {
                     Modifier.fillMaxSize()
                 } else if (isFullscreen) {
                     Modifier.fillMaxHeight().aspectRatio(16f / 9f)
@@ -692,7 +701,7 @@ fun StudyScreen(
                 // Only captures the view reference - cheap even though update() re-runs on every
                 // recomposition (currentSecond changes every frame during playback), since writing
                 // the same YouTubePlayerView instance back into this state is a no-op past the
-                // first call. The actual fix below runs from a LaunchedEffect keyed on isMinimized
+                // first call. The actual fix below runs from a LaunchedEffect keyed on showAsMini
                 // instead, specifically so it does NOT run on every one of those recompositions.
                 update = { view -> playerViewRef = view }
             )
@@ -705,13 +714,15 @@ fun StudyScreen(
             // back once real content resumed drawing. Forcing this view onto a software-rendered
             // layer while minimized sidesteps the hardware layer entirely; switching back to the
             // default (hardware, when supported) once expanded keeps full-size playback smooth,
-            // since only the tiny corner widget needs this workaround. Keyed on isMinimized
-            // specifically (not e.g. Unit) so this runs only on that transition, never on the
-            // frequent per-second recompositions from currentSecond during playback.
-            LaunchedEffect(isMinimized) {
+            // since only the tiny corner widget needs this workaround - keyed on showAsMini (not
+            // raw isMinimized) so entering real PiP while already minimized doesn't also force
+            // this on: real PiP resizes the whole Activity window at the OS level, a completely
+            // different mechanism this was never meant to guard, and forcing software rendering
+            // there previously blacked out the video entirely (see git history).
+            LaunchedEffect(showAsMini) {
                 val view = playerViewRef ?: return@LaunchedEffect
                 view.setLayerType(
-                    if (isMinimized) android.view.View.LAYER_TYPE_SOFTWARE else android.view.View.LAYER_TYPE_NONE,
+                    if (showAsMini) android.view.View.LAYER_TYPE_SOFTWARE else android.view.View.LAYER_TYPE_NONE,
                     null
                 )
                 view.requestLayout()
@@ -724,7 +735,7 @@ fun StudyScreen(
             // pointerInput() modifier placed only on the outer Row: tap-to-expand and drag-to-
             // expand both silently did nothing until this was added, confirmed by testing
             // coordinates that were unambiguously over plain video content, not the icon buttons.
-            if (isMinimized) {
+            if (showAsMini) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -818,7 +829,7 @@ fun StudyScreen(
             // Pause/play and close, overlaid directly on the small floating video itself (top
             // corner, small semi-transparent circles) rather than laid out beside it in a bar -
             // matching YouTube's own in-app mini-player.
-            if (isMinimized) {
+            if (showAsMini) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
@@ -964,7 +975,7 @@ fun StudyScreen(
         // inset is unambiguous - it's real, un-collapsible height in the Column's child order -
         // where a padding modifier on a wrap-content element inside an aligned Box apparently
         // wasn't.
-        if (isMinimized) {
+        if (showAsMini) {
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
 
