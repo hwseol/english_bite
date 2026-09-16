@@ -12,6 +12,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -384,6 +385,12 @@ fun StudyScreen(
     val activity = remember { context.findActivity() }
     val view = LocalView.current
 
+    // 140dp read as too small once actually used day to day - 200dp is a noticeably bigger
+    // default, and dragging the resize handle (top-left corner of the widget) can size it
+    // anywhere from a genuinely small corner peek up to something closer to a small window.
+    var miniWidgetWidth by remember { mutableStateOf(200.dp) }
+    val miniWidgetWidthRange = 120.dp..300.dp
+
     var currentSecond by remember { mutableFloatStateOf(0f) }
     var isFullscreen by remember { mutableStateOf(false) }
     var youTubePlayer by remember { mutableStateOf<YouTubePlayer?>(null) }
@@ -617,12 +624,12 @@ fun StudyScreen(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = if (showAsMini) {
-                // A small floating corner widget - the video itself, at a fixed small size, with
-                // its own controls overlaid directly on top of it - matching how YouTube's own
-                // in-app mini-player looks and behaves (not a full-width bar with a separate
+                // A small floating corner widget - the video itself, at a user-resizable size,
+                // with its own controls overlaid directly on top of it - matching how YouTube's
+                // own in-app mini-player looks and behaves (not a full-width bar with a separate
                 // title/controls strip next to the thumbnail).
                 Modifier
-                    .width(140.dp)
+                    .width(miniWidgetWidth)
                     .aspectRatio(16f / 9f)
                     .shadow(elevation = 10.dp, shape = RoundedCornerShape(16.dp), clip = false)
                     .clip(RoundedCornerShape(16.dp))
@@ -698,34 +705,22 @@ fun StudyScreen(
                         }, options)
                     }
                 },
-                // Only captures the view reference - cheap even though update() re-runs on every
-                // recomposition (currentSecond changes every frame during playback), since writing
-                // the same YouTubePlayerView instance back into this state is a no-op past the
-                // first call. The actual fix below runs from a LaunchedEffect keyed on showAsMini
-                // instead, specifically so it does NOT run on every one of those recompositions.
+                // Only captures the view reference for the requestLayout() nudge below.
                 update = { view -> playerViewRef = view }
             )
 
-            // Shrinking straight from fullscreen width down to the small 140dp corner widget can
-            // leave a stray sliver of the WebView's frame duplicated near the top of the screen,
-            // still updating live (a stock ticker inside the video kept ticking in both places) -
-            // a hardware-layer compositing artifact, not a one-off stale frame, since a plain
-            // requestLayout() or a GONE/VISIBLE toggle only cleared it momentarily before it came
-            // back once real content resumed drawing. Forcing this view onto a software-rendered
-            // layer while minimized sidesteps the hardware layer entirely; switching back to the
-            // default (hardware, when supported) once expanded keeps full-size playback smooth,
-            // since only the tiny corner widget needs this workaround - keyed on showAsMini (not
-            // raw isMinimized) so entering real PiP while already minimized doesn't also force
-            // this on: real PiP resizes the whole Activity window at the OS level, a completely
-            // different mechanism this was never meant to guard, and forcing software rendering
-            // there previously blacked out the video entirely (see git history).
+            // Shrinking straight from fullscreen width down to the small corner widget can leave
+            // a stray sliver of the WebView's frame duplicated near the top of the screen for a
+            // moment - a hardware-layer compositing artifact from the sudden resize. A previous
+            // fix forced this view onto a software-rendered layer during that transition, which
+            // did clear the sliver on the emulator, but on real hardware (confirmed on a Galaxy
+            // S23) forcing software rendering stops the actual video frame from compositing at
+            // all - the exact same failure mode already found and fixed once for real PiP's own
+            // transition (see git history for the black-PiP-screen fix), just re-introduced here
+            // for the widget's own resize instead. A plain requestLayout() is a much smaller
+            // hammer - it doesn't fully prevent the sliver, but it doesn't risk the video itself.
             LaunchedEffect(showAsMini) {
-                val view = playerViewRef ?: return@LaunchedEffect
-                view.setLayerType(
-                    if (showAsMini) android.view.View.LAYER_TYPE_SOFTWARE else android.view.View.LAYER_TYPE_NONE,
-                    null
-                )
-                view.requestLayout()
+                playerViewRef?.requestLayout()
             }
 
             // A transparent overlay on top of the AndroidView, exactly like the tap-catcher below
@@ -735,10 +730,15 @@ fun StudyScreen(
             // pointerInput() modifier placed only on the outer Row: tap-to-expand and drag-to-
             // expand both silently did nothing until this was added, confirmed by testing
             // coordinates that were unambiguously over plain video content, not the icon buttons.
+            // Also carries the same paused-state scrim as the full view below, for the same
+            // reason: YouTube's iframe shows its own promotional overlay (channel branding, a
+            // suggested-video card, a share icon) whenever paused, with no way to disable it -
+            // the mini widget never had a scrim of its own, so pausing it left that showing.
             if (showAsMini) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .background(if (hasStartedPlaying && !isPlaying) Color.Black.copy(alpha = 0.94f) else Color.Transparent)
                         .pointerInput(Unit) {
                             var totalDrag = 0f
                             val expandThresholdPx = 40.dp.toPx()
@@ -857,6 +857,26 @@ fun StudyScreen(
                         )
                     }
                 }
+                // A resize handle in the opposite (top-start) corner from pause/close - the
+                // widget is anchored bottom-end (see MainActivity), so dragging this corner
+                // further away shrinks the anchor point's distance to it, i.e. grows the widget;
+                // dragging it toward the anchor shrinks the widget. Width alone drives it since
+                // the aspect ratio is fixed, and it's clamped to miniWidgetWidthRange so it can't
+                // be dragged down to nothing or up past a small-window-sized ceiling.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp)
+                        .size(26.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        .pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                miniWidgetWidth = (miniWidgetWidth - with(density) { dragAmount.x.toDp() })
+                                    .coerceIn(miniWidgetWidthRange)
+                            }
+                        }
+                )
             }
 
             // Enter-fullscreen lives on the video itself (bottom-right, the same spot YouTube's
