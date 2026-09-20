@@ -3,7 +3,9 @@ package com.mhmh2.englishbite.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Build
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -252,7 +254,9 @@ private fun DepthIconButton(
 }
 
 /** Tapping the line itself also repeats it (seeks back to its start) - the whole point is not
- * needing to aim for a small button when the sentence you just heard is still in your ear. */
+ * needing to aim for a small button when the sentence you just heard is still in your ear.
+ * Long-pressing a specific word looks it up instead - a plain tap can't tell one word from
+ * another, so the two gestures split the same text between "repeat" and "look up". */
 @Composable
 private fun RepeatableSentence(
     words: List<Word>,
@@ -260,7 +264,8 @@ private fun RepeatableSentence(
     style: TextStyle,
     highlightColor: Color,
     baseColor: Color,
-    onRepeat: () -> Unit
+    onRepeat: () -> Unit,
+    onLookUpWord: (Word) -> Unit
 ) {
     KaraokeText(
         words = words,
@@ -268,9 +273,9 @@ private fun RepeatableSentence(
         style = style,
         highlightColor = highlightColor,
         baseColor = baseColor,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onRepeat)
+        modifier = Modifier.fillMaxWidth(),
+        onTap = onRepeat,
+        onLongPressWord = onLookUpWord
     )
 }
 
@@ -587,6 +592,17 @@ fun StudyScreen(
     fun repeatCurrentSentence() {
         lastCommandedIndex = currentIndex
         seekToSentence(currentIndex)
+    }
+
+    // Long-pressing a word the learner doesn't know opens it in a browser dictionary right
+    // away, rather than leaving them to close the app and look it up themselves - the video
+    // keeps playing behind it via the foreground service either way. Trailing punctuation
+    // (the raw word token can end in a comma/period) would otherwise get searched literally.
+    fun lookUpWord(word: Word) {
+        val cleaned = word.text.trim { it.isWhitespace() || it in ",.!?;:\"'()" }
+        if (cleaned.isBlank()) return
+        val uri = Uri.parse("https://en.dict.naver.com/#/search?query=${Uri.encode(cleaned)}")
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
     }
     fun previousSentence() {
         val target = (currentIndex - 1).coerceAtLeast(0)
@@ -1055,7 +1071,8 @@ fun StudyScreen(
                         style = styles.english,
                         highlightColor = KaraokeHighlightBlue,
                         baseColor = Color.White,
-                        onRepeat = ::repeatCurrentSentence
+                        onRepeat = ::repeatCurrentSentence,
+                        onLookUpWord = ::lookUpWord
                     )
                     Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 4.dp)) {
                         Text(
@@ -1136,7 +1153,8 @@ fun StudyScreen(
                             style = styles.english,
                             highlightColor = KaraokeHighlightBlue,
                             baseColor = MaterialTheme.colorScheme.onSurface,
-                            onRepeat = ::repeatCurrentSentence
+                            onRepeat = ::repeatCurrentSentence,
+                            onLookUpWord = ::lookUpWord
                         )
                         Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 12.dp)) {
                             Text(
