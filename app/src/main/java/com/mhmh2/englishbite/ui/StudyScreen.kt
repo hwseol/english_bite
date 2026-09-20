@@ -43,11 +43,14 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -367,6 +370,71 @@ private fun PlaybackSpeedButton(
     }
 }
 
+/** The compact caption strip beneath the mini-player's video, per the Stitch-generated
+ * mini-player layout - a one-line karaoke English snippet plus its Korean translation, so
+ * there's still something to read while the video is shrunk into the corner, with a hint to tap
+ * or swipe up to return to the full player. */
+@Composable
+private fun MiniPlayerCaption(
+    currentSentence: Sentence?,
+    displayWords: List<Word>,
+    currentSecond: Double
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Icon(
+                imageVector = Icons.Default.Subtitles,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(12.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = "실시간 학습 중",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowUp,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        if (currentSentence != null) {
+            KaraokeText(
+                words = displayWords,
+                currentSecond = currentSecond,
+                style = MaterialTheme.typography.bodySmall,
+                highlightColor = KaraokeHighlightBlue,
+                baseColor = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = currentSentence.ko,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        } else {
+            Text(
+                text = "탭하거나 위로 쓸어올려 복귀",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 @Composable
 fun StudyScreen(
     result: VideoResult,
@@ -621,21 +689,25 @@ fun StudyScreen(
         // Compose identifies a composable by its position in this structure, and putting the
         // AndroidView inside two different branches of an if/else would tear down and recreate
         // it - a fresh, reloaded-from-0 player - every time isMinimized flipped.
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
             modifier = if (showAsMini) {
-                // A small floating corner widget - the video itself, at a user-resizable size,
-                // with its own controls overlaid directly on top of it - matching how YouTube's
-                // own in-app mini-player looks and behaves (not a full-width bar with a separate
-                // title/controls strip next to the thumbnail).
+                // A small floating card - the video on top at a user-resizable width, with a
+                // compact live-caption footer beneath it (see MiniPlayerCaption below) - both
+                // inside the same rounded, shadowed card, per the Stitch-generated mini-player
+                // layout (a media surface plus a separate caption strip under it, not just the
+                // bare video YouTube's own in-app mini-player shows).
                 Modifier
                     .width(miniWidgetWidth)
-                    .aspectRatio(16f / 9f)
                     .shadow(elevation = 10.dp, shape = RoundedCornerShape(16.dp), clip = false)
                     .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
             } else {
                 Modifier
             }
+        ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = if (showAsMini) Modifier.fillMaxWidth().aspectRatio(16f / 9f) else Modifier
         ) {
         Box(
             modifier = if (showAsMini) {
@@ -734,11 +806,25 @@ fun StudyScreen(
             // reason: YouTube's iframe shows its own promotional overlay (channel branding, a
             // suggested-video card, a share icon) whenever paused, with no way to disable it -
             // the mini widget never had a scrim of its own, so pausing it left that showing.
+            // While playing, a much subtler top/bottom gradient (per the Stitch mini-player
+            // layout) replaces the plain transparent background instead, just enough to keep the
+            // corner icon buttons readable against a bright video frame.
             if (showAsMini) {
+                val miniScrimBrush = Brush.verticalGradient(
+                    0f to MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.6f),
+                    0.45f to Color.Transparent,
+                    1f to MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.9f)
+                )
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(if (hasStartedPlaying && !isPlaying) Color.Black.copy(alpha = 0.94f) else Color.Transparent)
+                        .then(
+                            if (hasStartedPlaying && !isPlaying) {
+                                Modifier.background(Color.Black.copy(alpha = 0.94f))
+                            } else {
+                                Modifier.background(miniScrimBrush)
+                            }
+                        )
                         .pointerInput(Unit) {
                             var totalDrag = 0f
                             val expandThresholdPx = 40.dp.toPx()
@@ -828,7 +914,10 @@ fun StudyScreen(
 
             // Pause/play and close, overlaid directly on the small floating video itself (top
             // corner, small semi-transparent circles) rather than laid out beside it in a bar -
-            // matching YouTube's own in-app mini-player.
+            // matching YouTube's own in-app mini-player. Button chrome color now follows the
+            // theme's surfaceContainerLowest token (per the Stitch mini-player layout) instead of
+            // a hardcoded black, so it tracks the rest of the palette if that changes again.
+            val miniControlBg = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.8f)
             if (showAsMini) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -836,23 +925,23 @@ fun StudyScreen(
                 ) {
                     IconButton(
                         onClick = ::togglePlayback,
-                        modifier = Modifier.size(26.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        modifier = Modifier.size(26.dp).background(miniControlBg, CircleShape)
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "일시정지" else "재생",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(15.dp)
                         )
                     }
                     IconButton(
                         onClick = onClose,
-                        modifier = Modifier.size(26.dp).background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        modifier = Modifier.size(26.dp).background(miniControlBg, CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "닫기",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(15.dp)
                         )
                     }
@@ -862,13 +951,18 @@ fun StudyScreen(
                 // further away shrinks the anchor point's distance to it, i.e. grows the widget;
                 // dragging it toward the anchor shrinks the widget. Width alone drives it since
                 // the aspect ratio is fixed, and it's clamped to miniWidgetWidthRange so it can't
-                // be dragged down to nothing or up past a small-window-sized ceiling.
+                // be dragged down to nothing or up past a small-window-sized ceiling. The
+                // open_in_full icon (matching Stitch's mini-player mockup) reads as "tap this to
+                // maximize" - reported as "doesn't seem to work" when it only handled drag, so a
+                // plain tap now also expands, same as tapping the video itself does; only a real
+                // drag (past touch slop, which detectDragGestures already requires before calling
+                // onDrag) resizes instead.
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(4.dp)
                         .size(26.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        .background(miniControlBg, CircleShape)
                         .pointerInput(Unit) {
                             detectDragGestures { change, dragAmount ->
                                 change.consume()
@@ -876,7 +970,20 @@ fun StudyScreen(
                                     .coerceIn(miniWidgetWidthRange)
                             }
                         }
-                )
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = onExpand
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInFull,
+                        contentDescription = "크기 조절",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
             }
 
             // Enter-fullscreen lives on the video itself (bottom-right, the same spot YouTube's
@@ -982,6 +1089,14 @@ fun StudyScreen(
                 }
                 }
             }
+        }
+        }
+        if (showAsMini) {
+            MiniPlayerCaption(
+                currentSentence = currentSentence,
+                displayWords = displayWords,
+                currentSecond = currentSecond.toDouble()
+            )
         }
         }
 

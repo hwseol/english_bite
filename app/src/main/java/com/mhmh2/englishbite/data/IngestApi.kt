@@ -30,7 +30,7 @@ object ApiClient {
     // real Let's Encrypt certificate for that hostname and proxies through to the API on 8000.
     private const val BASE_URL = "https://13-218-170-114.sslip.io/"
 
-    val ingestApi: IngestApi by lazy {
+    private val retrofit: Retrofit by lazy {
         val logging = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         }
@@ -49,6 +49,8 @@ object ApiClient {
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(IngestApi::class.java)
     }
+
+    val ingestApi: IngestApi by lazy { retrofit.create(IngestApi::class.java) }
+    val authApi: AuthApi by lazy { retrofit.create(AuthApi::class.java) }
 }

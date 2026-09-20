@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import com.mhmh2.englishbite.ui.CatalogScreen
 import com.mhmh2.englishbite.ui.CatalogState
 import com.mhmh2.englishbite.ui.CatalogViewModel
+import com.mhmh2.englishbite.ui.LoginScreen
+import com.mhmh2.englishbite.ui.SplashScreen
 import com.mhmh2.englishbite.ui.StudyScreen
 import com.mhmh2.englishbite.ui.StudyViewModel
 import com.mhmh2.englishbite.ui.UiState
@@ -97,10 +99,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             EnglishBiteTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
+                    // Shown once per process start, ahead of everything else - see
+                    // SplashScreen's own comment for why this is a plain text placeholder today.
+                    var showSplash by remember { mutableStateOf(true) }
+                    if (showSplash) {
+                        SplashScreen(onFinished = { showSplash = false })
+                        return@Surface
+                    }
+
                     val ingestState by studyViewModel.uiState.collectAsState()
                     var currentVideoTitle by remember { mutableStateOf<String?>(null) }
                     var pendingStartSecond by remember { mutableStateOf<Float?>(null) }
                     var showVocabulary by remember { mutableStateOf(false) }
+                    // Reached only from the catalog's account icon - never forced, since every
+                    // feature in the app already works without logging in.
+                    var showLogin by remember { mutableStateOf(false) }
                     // The mini-player: back (or a swipe-down, from StudyScreen) sets this instead
                     // of tearing the video down, so picking something else off the catalog while
                     // it's playing small is possible - StudyScreen itself keeps running the same
@@ -142,7 +155,13 @@ class MainActivity : ComponentActivity() {
                         // or the loaded one has been minimized - not an else-branch of the
                         // Success check below, since both can be true/visible at once.
                         if (current !is UiState.Success || showAsMini) {
-                            if (showVocabulary) {
+                            if (showLogin) {
+                                BackHandler { showLogin = false }
+                                LoginScreen(
+                                    onBack = { showLogin = false },
+                                    onLoggedIn = { showLogin = false }
+                                )
+                            } else if (showVocabulary) {
                                 BackHandler { showVocabulary = false }
                                 VocabularyScreen(
                                     onBack = { showVocabulary = false },
@@ -168,7 +187,8 @@ class MainActivity : ComponentActivity() {
                                     onSortChange = catalogViewModel::setSort,
                                     onSearchQueryChange = catalogViewModel::setSearchQuery,
                                     onSelect = { item -> playVideo(item.video_id, item.title) },
-                                    onOpenVocabulary = { showVocabulary = true }
+                                    onOpenVocabulary = { showVocabulary = true },
+                                    onOpenAccount = { showLogin = true }
                                 )
                             }
                         }

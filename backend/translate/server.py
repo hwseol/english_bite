@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
+import auth_db
 from catalog import upsert_catalog_entry
 from pipeline import UserFacingError, extract_video_id, process_uploaded_audio, process_video
 
@@ -24,6 +25,7 @@ CATALOG_PATH = Path(__file__).parent / "catalog.json"
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
 
 app = FastAPI(title="EnglishBite ingest API")
+auth_db.init_db()
 
 _lock = threading.Lock()
 _in_progress: set[str] = set()
@@ -53,6 +55,17 @@ threading.Thread(target=_worker_loop, daemon=True).start()
 
 class IngestRequest(BaseModel):
     url: str
+
+
+class SignupRequest(BaseModel):
+    email: str
+    nickname: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 
 def cache_path(video_id: str) -> Path:
@@ -207,6 +220,36 @@ def get_catalog(channel: str | None = None):
         if cache_path(item["video_id"]).exists():
             ready.append(item)
     return ready
+
+
+@app.post("/auth/signup")
+def signup(req: SignupRequest):
+    try:
+        user = auth_db.create_user(req.email, req.nickname, req.password)
+    except auth_db.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    token = auth_db.create_session(user["id"])
+    return {"token": token, **auth_db.user_public(user)}
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    try:
+        user = auth_db.verify_login(req.email, req.password)
+    except auth_db.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    token = auth_db.create_session(user["id"])
+    return {"token": token, **auth_db.user_public(user)}
+
+
+@app.get("/auth/me")
+def me(authorization: str | None = Header(None)):
+    """authorization is the raw session token (no "Bearer " prefix - there's nothing else that
+    would ever populate this header, so the extra parsing isn't worth it)."""
+    user = auth_db.get_user_by_token(authorization) if authorization else None
+    if user is None:
+        raise HTTPException(status_code=401, detail="로그인이 필요해요.")
+    return auth_db.user_public(user)
 
 
 @app.get("/health")

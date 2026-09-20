@@ -48,6 +48,11 @@ data class VideoResult(
 
 data class IngestRequest(val url: String)
 
+data class SignupRequest(val email: String, val nickname: String, val password: String)
+data class LoginRequest(val email: String, val password: String)
+data class AuthResponse(val token: String, val email: String, val nickname: String)
+data class UserProfile(val email: String, val nickname: String)
+
 data class CatalogItem(
     val video_id: String,
     val title: String,

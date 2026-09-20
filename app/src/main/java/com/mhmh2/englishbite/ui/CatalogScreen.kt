@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
@@ -88,7 +89,8 @@ fun CatalogScreen(
     onSortChange: (CatalogSort) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onSelect: (CatalogItem) -> Unit,
-    onOpenVocabulary: () -> Unit = {}
+    onOpenVocabulary: () -> Unit = {},
+    onOpenAccount: () -> Unit = {}
 ) {
     // listState is hoisted by the caller (survives navigating to a video and back, unlike a
     // rememberLazyListState() created here, which would reset to the top on every return trip).
@@ -129,6 +131,13 @@ fun CatalogScreen(
                     imageVector = Icons.Default.Bookmark,
                     contentDescription = "내 단어장",
                     tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(onClick = onOpenAccount) {
+                Icon(
+                    imageVector = Icons.Default.AccountCircle,
+                    contentDescription = "계정",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
