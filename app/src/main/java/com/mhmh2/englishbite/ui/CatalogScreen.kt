@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,6 +49,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -201,42 +205,54 @@ fun CatalogScreen(
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
                 .padding(10.dp)
         ) {
+            // channelListState + the hint bar under it exist purely to signal that this row
+            // scrolls sideways - reported as not obvious on its own (a plain LazyRow gives no
+            // visual cue it has more content than fits), so a thin scroll-position track/thumb
+            // sits underneath it, the same idea as a horizontal scrollbar.
+            val channelListState = rememberLazyListState()
             Row(verticalAlignment = Alignment.CenterVertically) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    item {
-                        FilterChip(
-                            selected = channelFilter == null,
-                            onClick = { onChannelFilterChange(null) },
-                            label = { Text("모든 언론사") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            },
-                            colors = chipColors()
-                        )
+                Column(modifier = Modifier.weight(1f)) {
+                    LazyRow(
+                        state = channelListState,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = channelFilter == null,
+                                onClick = { onChannelFilterChange(null) },
+                                label = { Text("모든 언론사") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                },
+                                colors = chipColors()
+                            )
+                        }
+                        items(listOf("CNN", "BBC News", "Bloomberg", "The Economist", "Fox Business")) { channel ->
+                            FilterChip(
+                                selected = channelFilter == channel,
+                                onClick = { onChannelFilterChange(channel) },
+                                label = { Text(channel) },
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(channelDotColor(channel))
+                                    )
+                                },
+                                colors = chipColors()
+                            )
+                        }
                     }
-                    items(listOf("CNN", "BBC News", "Bloomberg", "The Economist", "Fox Business")) { channel ->
-                        FilterChip(
-                            selected = channelFilter == channel,
-                            onClick = { onChannelFilterChange(channel) },
-                            label = { Text(channel) },
-                            leadingIcon = {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(channelDotColor(channel))
-                                )
-                            },
-                            colors = chipColors()
-                        )
-                    }
+                    Spacer(Modifier.height(5.dp))
+                    HorizontalScrollHint(
+                        listState = channelListState,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
                 }
 
                 Spacer(Modifier.width(6.dp))
@@ -307,6 +323,50 @@ fun CatalogScreen(
                 }
             }
         }
+    }
+}
+
+/** A thin track + thumb under a horizontally-scrolling row, purely as a "there's more, and you
+ * can drag this" affordance - a bare LazyRow gives no hint on its own that it scrolls sideways.
+ * The thumb's width/position are an approximation (from the first visible item's index/offset
+ * against the total item count), not a pixel-exact scrollbar - good enough for a visual cue. */
+@Composable
+private fun HorizontalScrollHint(listState: LazyListState, modifier: Modifier = Modifier) {
+    val progress by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val totalCount = info.totalItemsCount
+            if (totalCount <= 1) {
+                0f
+            } else {
+                val first = info.visibleItemsInfo.firstOrNull()
+                val itemPosition = if (first != null && first.size > 0) {
+                    first.index - first.offset.toFloat() / first.size
+                } else {
+                    0f
+                }
+                (itemPosition / (totalCount - 1)).coerceIn(0f, 1f)
+            }
+        }
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth().height(3.dp)) {
+        val thumbWidth = maxWidth * 0.3f
+        val maxOffset = maxWidth - thumbWidth
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.outlineVariant)
+        )
+        Box(
+            modifier = Modifier
+                .offset(x = maxOffset * progress)
+                .width(thumbWidth)
+                .height(3.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.primary)
+        )
     }
 }
 
