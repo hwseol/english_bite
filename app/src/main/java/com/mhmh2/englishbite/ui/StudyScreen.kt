@@ -265,7 +265,8 @@ private fun RepeatableSentence(
     highlightColor: Color,
     baseColor: Color,
     onRepeat: () -> Unit,
-    onLookUpWord: (Word) -> Unit
+    onLookUpWord: (Word) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     KaraokeText(
         words = words,
@@ -273,7 +274,7 @@ private fun RepeatableSentence(
         style = style,
         highlightColor = highlightColor,
         baseColor = baseColor,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         onTap = onRepeat,
         onLongPressWord = onLookUpWord
     )
@@ -1065,31 +1066,18 @@ fun StudyScreen(
                     currentIdiom?.let { idiom ->
                         IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = true)
                     }
-                    RepeatableSentence(
-                        words = displayWords,
-                        currentSecond = currentSecond.toDouble(),
-                        style = styles.english,
-                        highlightColor = KaraokeHighlightBlue,
-                        baseColor = Color.White,
-                        onRepeat = ::repeatCurrentSentence,
-                        onLookUpWord = ::lookUpWord
-                    )
-                    // A translucent card around the Korean line, distinct from the plain-on-
-                    // scrim English line above it - reported as tiring to read when the two
-                    // languages ran together with no separation, just a little vertical gap.
-                    Row(
-                        verticalAlignment = Alignment.Top,
-                        modifier = Modifier
-                            .padding(top = 10.dp)
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.White.copy(alpha = 0.1f))
-                            .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp)
-                    ) {
-                        Text(
-                            text = currentSentence.ko,
-                            style = styles.korean,
-                            color = Color.White.copy(alpha = 0.85f),
+                    // Bookmark sits next to the English line, not the Korean one below - it
+                    // saves the whole sentence pair, and living inside the Korean-only card
+                    // made it read as "save just the translation."
+                    Row(verticalAlignment = Alignment.Top) {
+                        RepeatableSentence(
+                            words = displayWords,
+                            currentSecond = currentSecond.toDouble(),
+                            style = styles.english,
+                            highlightColor = KaraokeHighlightBlue,
+                            baseColor = Color.White,
+                            onRepeat = ::repeatCurrentSentence,
+                            onLookUpWord = ::lookUpWord,
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(onClick = ::toggleSaveCurrentSentence, modifier = Modifier.size(28.dp)) {
@@ -1100,6 +1088,23 @@ fun StudyScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
+                    }
+                    // A translucent card around the Korean line, distinct from the plain-on-
+                    // scrim English line above it - reported as tiring to read when the two
+                    // languages ran together with no separation, just a little vertical gap.
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 10.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.1f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = currentSentence.ko,
+                            style = styles.korean,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
                     }
                     SentenceNavControls(
                         onPrevious = ::previousSentence,
@@ -1158,31 +1163,18 @@ fun StudyScreen(
                         currentIdiom?.let { idiom ->
                             IdiomBadge(idiom, idiomExpanded, ::toggleIdiom, onDarkBackground = false)
                         }
-                        RepeatableSentence(
-                            words = displayWords,
-                            currentSecond = currentSecond.toDouble(),
-                            style = styles.english,
-                            highlightColor = KaraokeHighlightBlue,
-                            baseColor = MaterialTheme.colorScheme.onSurface,
-                            onRepeat = ::repeatCurrentSentence,
-                            onLookUpWord = ::lookUpWord
-                        )
-                        // A tinted card around the Korean line, distinct from the English line
-                        // above it - reported as tiring to read when the two languages ran
-                        // together with no visual separation, just a little vertical gap.
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier
-                                .padding(top = 14.dp)
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp)
-                        ) {
-                            Text(
-                                text = currentSentence.ko,
-                                style = styles.korean,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // Bookmark sits next to the English line, not the Korean one below - it
+                        // saves the whole sentence pair, and living inside the Korean-only card
+                        // made it read as "save just the translation."
+                        Row(verticalAlignment = Alignment.Top) {
+                            RepeatableSentence(
+                                words = displayWords,
+                                currentSecond = currentSecond.toDouble(),
+                                style = styles.english,
+                                highlightColor = KaraokeHighlightBlue,
+                                baseColor = MaterialTheme.colorScheme.onSurface,
+                                onRepeat = ::repeatCurrentSentence,
+                                onLookUpWord = ::lookUpWord,
                                 modifier = Modifier.weight(1f)
                             )
                             IconButton(onClick = ::toggleSaveCurrentSentence, modifier = Modifier.size(28.dp)) {
@@ -1193,6 +1185,23 @@ fun StudyScreen(
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
+                        }
+                        // A tinted card around the Korean line, distinct from the English line
+                        // above it - reported as tiring to read when the two languages ran
+                        // together with no visual separation, just a little vertical gap.
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 14.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = currentSentence.ko,
+                                style = styles.korean,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         // One centered control cluster - speed pill and prev/next grouped
                         // together with a small gap - instead of the speed pill floating alone
