@@ -188,9 +188,10 @@ fun CatalogScreen(
         Spacer(Modifier.height(12.dp))
 
         // One bordered card holding every filter, instead of three free-floating chip rows -
-        // per the Stitch-designed filter layout: category up top, then a divider, then channel
-        // chips sharing a row with a single sort menu button (최신순/인기순 folded into a
-        // dropdown instead of their own always-visible chips).
+        // per the Stitch-designed filter layout, with channel/sort on top (the more commonly
+        // used pick-a-source-first flow, per feedback) and category below it, split by a
+        // divider. Sort (최신순/인기순) is folded into a dropdown instead of its own
+        // always-visible chips.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -200,32 +201,6 @@ fun CatalogScreen(
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
                 .padding(10.dp)
         ) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                item {
-                    FilterChip(
-                        selected = categoryFilter == null,
-                        onClick = { onCategoryFilterChange(null) },
-                        label = { Text("전체") },
-                        colors = chipColors()
-                    )
-                }
-                items(listOf("정치", "경제", "사회")) { category ->
-                    FilterChip(
-                        selected = categoryFilter == category,
-                        onClick = { onCategoryFilterChange(category) },
-                        label = { Text(category) },
-                        colors = chipColors()
-                    )
-                }
-            }
-
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 8.dp),
-                color = MaterialTheme.colorScheme.outlineVariant
-            )
-
             Row(verticalAlignment = Alignment.CenterVertically) {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -266,6 +241,32 @@ fun CatalogScreen(
 
                 Spacer(Modifier.width(6.dp))
                 SortMenuButton(sort = sort, onSortChange = onSortChange)
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = categoryFilter == null,
+                        onClick = { onCategoryFilterChange(null) },
+                        label = { Text("전체") },
+                        colors = chipColors()
+                    )
+                }
+                items(listOf("정치", "경제", "사회")) { category ->
+                    FilterChip(
+                        selected = categoryFilter == category,
+                        onClick = { onCategoryFilterChange(category) },
+                        label = { Text(category) },
+                        colors = chipColors()
+                    )
+                }
             }
         }
 
