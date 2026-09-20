@@ -157,10 +157,7 @@ class MainActivity : ComponentActivity() {
                         if (current !is UiState.Success || showAsMini) {
                             if (showLogin) {
                                 BackHandler { showLogin = false }
-                                LoginScreen(
-                                    onBack = { showLogin = false },
-                                    onLoggedIn = { showLogin = false }
-                                )
+                                LoginScreen(onBack = { showLogin = false })
                             } else if (showVocabulary) {
                                 BackHandler { showVocabulary = false }
                                 VocabularyScreen(
