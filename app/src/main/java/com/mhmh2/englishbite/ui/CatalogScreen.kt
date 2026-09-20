@@ -1,6 +1,7 @@
 package com.mhmh2.englishbite.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,16 +21,23 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +60,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mhmh2.englishbite.data.CatalogItem
+
+// Small brand-colored dot in front of each channel's name in the filter row, matching the
+// Stitch-designed filter card (see CatalogScreen's filter section) - purely decorative, not
+// tied to anything the channel itself returns.
+private fun channelDotColor(channel: String): Color = when (channel) {
+    "CNN" -> Color(0xFFCC0000)
+    "BBC News" -> Color(0xFFBB1919)
+    "Bloomberg" -> Color(0xFF3B82F6)
+    "The Economist" -> Color(0xFFE3120B)
+    "Fox Business" -> Color(0xFF003DA5)
+    else -> Color(0xFF9CA3AF)
+}
 
 private fun formatViewCount(count: Long): String = when {
     count >= 100_000_000 -> "%.1f억회".format(count / 100_000_000.0)
@@ -167,73 +187,85 @@ fun CatalogScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 20.dp)
+        // One bordered card holding every filter, instead of three free-floating chip rows -
+        // per the Stitch-designed filter layout: category up top, then a divider, then channel
+        // chips sharing a row with a single sort menu button (최신순/인기순 folded into a
+        // dropdown instead of their own always-visible chips).
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                .padding(10.dp)
         ) {
-            item {
-                FilterChip(
-                    selected = channelFilter == null,
-                    onClick = { onChannelFilterChange(null) },
-                    label = { Text("전체") },
-                    colors = chipColors()
-                )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = categoryFilter == null,
+                        onClick = { onCategoryFilterChange(null) },
+                        label = { Text("전체") },
+                        colors = chipColors()
+                    )
+                }
+                items(listOf("정치", "경제", "사회")) { category ->
+                    FilterChip(
+                        selected = categoryFilter == category,
+                        onClick = { onCategoryFilterChange(category) },
+                        label = { Text(category) },
+                        colors = chipColors()
+                    )
+                }
             }
-            items(listOf("CNN", "BBC News", "Bloomberg", "The Economist", "Fox Business")) { channel ->
-                FilterChip(
-                    selected = channelFilter == channel,
-                    onClick = { onChannelFilterChange(channel) },
-                    label = { Text(channel) },
-                    colors = chipColors()
-                )
-            }
-        }
 
-        Spacer(Modifier.height(8.dp))
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
 
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 20.dp)
-        ) {
-            item {
-                FilterChip(
-                    selected = categoryFilter == null,
-                    onClick = { onCategoryFilterChange(null) },
-                    label = { Text("모든 주제") },
-                    colors = chipColors()
-                )
-            }
-            items(listOf("정치", "경제", "사회")) { category ->
-                FilterChip(
-                    selected = categoryFilter == category,
-                    onClick = { onCategoryFilterChange(category) },
-                    label = { Text(category) },
-                    colors = chipColors()
-                )
-            }
-        }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = channelFilter == null,
+                            onClick = { onChannelFilterChange(null) },
+                            label = { Text("모든 언론사") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            },
+                            colors = chipColors()
+                        )
+                    }
+                    items(listOf("CNN", "BBC News", "Bloomberg", "The Economist", "Fox Business")) { channel ->
+                        FilterChip(
+                            selected = channelFilter == channel,
+                            onClick = { onChannelFilterChange(channel) },
+                            label = { Text(channel) },
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(channelDotColor(channel))
+                                )
+                            },
+                            colors = chipColors()
+                        )
+                    }
+                }
 
-        Spacer(Modifier.height(8.dp))
-
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 20.dp)
-        ) {
-            item {
-                FilterChip(
-                    selected = sort == CatalogSort.LATEST,
-                    onClick = { onSortChange(CatalogSort.LATEST) },
-                    label = { Text("최신순") },
-                    colors = chipColors()
-                )
-            }
-            item {
-                FilterChip(
-                    selected = sort == CatalogSort.POPULAR,
-                    onClick = { onSortChange(CatalogSort.POPULAR) },
-                    label = { Text("인기순") },
-                    colors = chipColors()
-                )
+                Spacer(Modifier.width(6.dp))
+                SortMenuButton(sort = sort, onSortChange = onSortChange)
             }
         }
 
@@ -273,6 +305,56 @@ fun CatalogScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Folds 최신순/인기순 into a single dropdown trigger instead of two always-visible chips -
+ * matches how much more of the filter row that freed up in the Stitch mockup this was modeled
+ * on, since a sort is a single choice rather than something you'd ever want to see both options
+ * of at once. */
+@Composable
+private fun SortMenuButton(sort: CatalogSort, onSortChange: (CatalogSort) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val label = if (sort == CatalogSort.LATEST) "최신순" else "인기순"
+
+    Box {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .clickable { expanded = true }
+                .padding(horizontal = 10.dp, vertical = 7.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.SwapVert,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(15.dp)
+            )
+            Spacer(Modifier.width(3.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Icon(
+                imageVector = Icons.Default.ExpandMore,
+                contentDescription = "정렬 선택",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("최신순") },
+                onClick = { onSortChange(CatalogSort.LATEST); expanded = false }
+            )
+            DropdownMenuItem(
+                text = { Text("인기순") },
+                onClick = { onSortChange(CatalogSort.POPULAR); expanded = false }
+            )
         }
     }
 }
