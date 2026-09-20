@@ -1074,11 +1074,22 @@ fun StudyScreen(
                         onRepeat = ::repeatCurrentSentence,
                         onLookUpWord = ::lookUpWord
                     )
-                    Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 4.dp)) {
+                    // A translucent card around the Korean line, distinct from the plain-on-
+                    // scrim English line above it - reported as tiring to read when the two
+                    // languages ran together with no separation, just a little vertical gap.
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier
+                            .padding(top = 10.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.1f))
+                            .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp)
+                    ) {
                         Text(
                             text = currentSentence.ko,
                             style = styles.korean,
-                            color = Color.White.copy(alpha = 0.8f),
+                            color = Color.White.copy(alpha = 0.85f),
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(onClick = ::toggleSaveCurrentSentence, modifier = Modifier.size(28.dp)) {
@@ -1156,7 +1167,18 @@ fun StudyScreen(
                             onRepeat = ::repeatCurrentSentence,
                             onLookUpWord = ::lookUpWord
                         )
-                        Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(top = 12.dp)) {
+                        // A tinted card around the Korean line, distinct from the English line
+                        // above it - reported as tiring to read when the two languages ran
+                        // together with no visual separation, just a little vertical gap.
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier
+                                .padding(top = 14.dp)
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp)
+                        ) {
                             Text(
                                 text = currentSentence.ko,
                                 style = styles.korean,
