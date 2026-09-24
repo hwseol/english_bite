@@ -3,16 +3,22 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Speech bubble ("English") with a bite taken out of it ("Bite") - a rounded-rect
-         bubble with a smooth curved tail (not a sharp spike) and a bolder corner bite.
-         The bite is a true hole (evenOdd fill over both subpaths) rather than a second
-         shape painted in the background's own color, so it reads correctly against any
-         background - including the gradient below - instead of showing a flat patch. -->
+    <!-- "Bite" mark: a circle with a bite taken out of the upper-right, chosen over a
+         speech-bubble/letter/play-triangle version (too close to a video-app play button,
+         reads as a knockoff of YouTube's mark). The bite is a true hole (evenOdd over both
+         subpaths) rather than a shape painted in the background's own color, so it reads
+         correctly against the background gradient below instead of showing a flat patch. -->
     <path
         android:fillColor="#2F7DFF"
         android:fillType="evenOdd"
-        android:pathData="M30,26 L78,26 A10,10 0 0 1 88,36 L88,64 A10,10 0 0 1 78,74
-                           L52,74 C46,80 38,85 29,86 C31,81 31,77 30,74
-                           A10,10 0 0 1 20,64 L20,36 A10,10 0 0 1 30,26 Z
-                           M68,34 A14,14 0 1 1 96,34 A14,14 0 1 1 68,34 Z" />
+        android:pathData="M54,20 A34,34 0 1,0 54,88 A34,34 0 1,0 54,20 Z
+                           M76,21 A15,15 0 1,0 76,51 A15,15 0 1,0 76,21 Z" />
+    <!-- Two subtitle bars (the bilingual-subtitle feature is the app's actual
+         differentiator, not "plays video" - every video app has a play button) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M39,48 L59,48 A3,3 0 0 1 62,51 A3,3 0 0 1 59,54 L39,54
+                           A3,3 0 0 1 36,51 A3,3 0 0 1 39,48 Z
+                           M39,59 L51,59 A3,3 0 0 1 54,62 A3,3 0 0 1 51,65 L39,65
+                           A3,3 0 0 1 36,62 A3,3 0 0 1 39,59 Z" />
 </vector>
