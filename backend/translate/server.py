@@ -1,60 +1,28 @@
 import json
 import os
-import queue
-import shutil
-import tempfile
-import threading
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 import auth_db
 from catalog import upsert_catalog_entry
-from pipeline import UserFacingError, extract_video_id, process_uploaded_audio, process_video
 
 CACHE_DIR = Path(__file__).parent / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
 CATALOG_PATH = Path(__file__).parent / "catalog.json"
 
-# Shared secret the Android app's admin-sync screen sends back - this endpoint lets anyone who
-# has it kick off arbitrary server-side processing (and, via catalog_entry, arbitrary catalog
-# entries), so it's gated even though this is a small personal project. Set via the
-# ADMIN_TOKEN env var on the server (see englishbite-api.service); with no env var set the
-# admin endpoint is disabled entirely rather than silently accepting an empty token.
+# Shared secret the PC-side admin_sync.py sends along with each finished video. Set via the
+# ADMIN_TOKEN env var on the server (see englishbite-api.service); with no env var set the admin
+# endpoint is disabled entirely rather than silently accepting an empty token.
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
 
-app = FastAPI(title="EnglishBite ingest API")
+# This server only serves finished results - the heavy work (Whisper transcription, NLLB
+# translation, Ollama idiom extraction) runs on the PC and arrives via /admin/publish. That is
+# what lets this run on a tiny instance instead of the 8GB one those models needed.
+app = FastAPI(title="EnglishBite API")
 auth_db.init_db()
-
-_lock = threading.Lock()
-_in_progress: set[str] = set()
-_errors: dict[str, tuple[int, str]] = {}
-
-# Whisper + NLLB + Ollama each hold their own model in memory and are CPU-heavy to run - the
-# admin-sync flow can enqueue dozens of videos within a couple minutes, and firing off one
-# thread per request (the original design, sized around a single interactive user submitting
-# one video at a time) let that many run concurrently at once and OOM-killed the whole service,
-# losing every in-flight job with nothing cached to show for it. A single background worker
-# processes one video at a time instead - slower to catch up after a big batch, but bounded and
-# won't take the server down.
-_job_queue: "queue.Queue[tuple]" = queue.Queue()
-
-
-def _worker_loop():
-    while True:
-        fn, args = _job_queue.get()
-        try:
-            fn(*args)
-        finally:
-            _job_queue.task_done()
-
-
-threading.Thread(target=_worker_loop, daemon=True).start()
-
-
-class IngestRequest(BaseModel):
-    url: str
 
 
 class SignupRequest(BaseModel):
@@ -68,146 +36,80 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class IngestRequest(BaseModel):
+    url: str
+
+
+class PublishRequest(BaseModel):
+    result: dict
+    catalog_entry: dict
+
+
 def cache_path(video_id: str) -> Path:
     return CACHE_DIR / f"{video_id}.json"
 
 
-def _run_ingest(url: str, video_id: str):
-    try:
-        result = process_video(url)
-        cache_path(video_id).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    except UserFacingError as e:
-        with _lock:
-            _errors[video_id] = (422, str(e))
-    except Exception as e:
-        with _lock:
-            _errors[video_id] = (502, f"번역 처리 중 문제가 발생했어요: {e}")
-    finally:
-        with _lock:
-            _in_progress.discard(video_id)
+def extract_video_id(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.hostname in ("youtu.be",):
+        return parsed.path.lstrip("/")
+    if parsed.hostname and "youtube.com" in parsed.hostname:
+        if parsed.path == "/watch":
+            return parse_qs(parsed.query)["v"][0]
+        if parsed.path.startswith("/shorts/"):
+            return parsed.path.split("/")[2]
+    raise ValueError(f"Could not parse a video ID from URL: {url}")
 
 
-def _run_ingest_from_audio(video_id: str, audio_path: Path, catalog_entry: dict):
-    try:
-        result = process_uploaded_audio(video_id, audio_path)
-        cache_path(video_id).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-        upsert_catalog_entry(catalog_entry)
-    except UserFacingError as e:
-        with _lock:
-            _errors[video_id] = (422, str(e))
-    except Exception as e:
-        with _lock:
-            _errors[video_id] = (502, f"번역 처리 중 문제가 발생했어요: {e}")
-    finally:
-        shutil.rmtree(audio_path.parent, ignore_errors=True)
-        with _lock:
-            _in_progress.discard(video_id)
+def _done_response(video_id: str) -> dict:
+    return {"status": "done", "cached": True, **json.loads(cache_path(video_id).read_text(encoding="utf-8"))}
 
 
-@app.post("/admin/ingest")
-async def admin_ingest(
-    video_id: str = Form(...),
-    title: str = Form(...),
-    channel: str = Form(...),
-    thumbnail: str | None = Form(None),
-    view_count: int = Form(0),
-    duration: int = Form(0),
-    upload_date: str = Form(""),
-    timestamp: int = Form(0),
-    category: str = Form("사회"),
-    audio: UploadFile = File(...),
-    x_admin_token: str | None = Header(None),
-):
-    """Counterpart to catalog.py's yt-dlp-based discovery, for when the server's own IP is
-    blocked by YouTube's bot detection: the Android app (run by the admin, from a residential/
-    mobile IP) scrapes the channel and extracts this video's audio itself, then uploads both
-    here. From here on this is identical to the rest of the pipeline - transcribe, translate,
-    extract idioms, cache, and add to catalog.json."""
+@app.post("/admin/publish")
+def admin_publish(req: PublishRequest, x_admin_token: str | None = Header(None)):
+    """Counterpart to admin_sync.py: the PC has already transcribed, translated and extracted
+    idioms for this video, so this just stores the finished result and adds the video to
+    catalog.json."""
     if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Invalid admin token")
 
-    path = cache_path(video_id)
-    if path.exists():
-        return {"status": "done", "cached": True, **json.loads(path.read_text(encoding="utf-8"))}
+    video_id = req.catalog_entry.get("video_id")
+    if not video_id or req.result.get("video_id") != video_id:
+        raise HTTPException(status_code=400, detail="video_id mismatch between result and catalog_entry")
 
-    with _lock:
-        already_running = video_id in _in_progress
-        _errors.pop(video_id, None)
-        if not already_running:
-            _in_progress.add(video_id)
-
-    if already_running:
-        return {"status": "processing", "video_id": video_id}
-
-    tmp_dir = Path(tempfile.mkdtemp(prefix="ebite_admin_audio_"))
-    audio_path = tmp_dir / (audio.filename or "audio")
-    with audio_path.open("wb") as f:
-        shutil.copyfileobj(audio.file, f)
-
-    catalog_entry = {
-        "video_id": video_id,
-        "title": title,
-        "channel": channel,
-        "thumbnail": thumbnail,
-        "view_count": view_count,
-        "duration": duration,
-        "upload_date": upload_date,
-        "timestamp": timestamp,
-        "category": category,
-    }
-    _job_queue.put((_run_ingest_from_audio, (video_id, audio_path, catalog_entry)))
-    return {"status": "processing", "video_id": video_id}
+    cache_path(video_id).write_text(json.dumps(req.result, ensure_ascii=False, indent=2), encoding="utf-8")
+    upsert_catalog_entry(req.catalog_entry)
+    return {"status": "done", "video_id": video_id}
 
 
 @app.post("/videos")
 def ingest_video(req: IngestRequest):
-    """Kick off ingestion and return immediately - the client polls
-    GET /videos/{video_id} for the result. A translation run can take
-    minutes, which is too long for a single held-open connection to
-    survive a phone's screen sleeping/backgrounding or a tunnel's
-    proxy timeout."""
+    """Kept for the app's existing flow (it POSTs, then polls GET /videos/{id}): every video the
+    catalog offers is already processed, so this answers "done" immediately for those. A video
+    that was never processed can't be produced here anymore - the server no longer runs the
+    models."""
     try:
         video_id = extract_video_id(req.url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    path = cache_path(video_id)
-    if path.exists():
-        return {"status": "done", "cached": True, **json.loads(path.read_text(encoding="utf-8"))}
-
-    with _lock:
-        already_running = video_id in _in_progress
-        _errors.pop(video_id, None)
-        if not already_running:
-            _in_progress.add(video_id)
-
-    if not already_running:
-        _job_queue.put((_run_ingest, (req.url, video_id)))
-
-    return {"status": "processing", "video_id": video_id}
+    if cache_path(video_id).exists():
+        return _done_response(video_id)
+    raise HTTPException(status_code=404, detail="아직 준비되지 않은 영상이에요. 목록에 있는 다른 영상을 선택해주세요.")
 
 
 @app.get("/videos/{video_id}")
 def get_video(video_id: str):
-    path = cache_path(video_id)
-    if path.exists():
-        return {"status": "done", "cached": True, **json.loads(path.read_text(encoding="utf-8"))}
-
-    with _lock:
-        if video_id in _errors:
-            status_code, detail = _errors.pop(video_id)
-            raise HTTPException(status_code=status_code, detail=detail)
-        if video_id in _in_progress:
-            return {"status": "processing", "video_id": video_id}
-
-    raise HTTPException(status_code=404, detail="Not found - submit it via POST /videos first")
+    if cache_path(video_id).exists():
+        return _done_response(video_id)
+    raise HTTPException(status_code=404, detail="아직 준비되지 않은 영상이에요.")
 
 
 @app.get("/catalog")
 def get_catalog(channel: str | None = None):
-    """Today's CNN/BBC uploads, as collected by catalog.py. Each entry's video_id is only
-    included once it's actually ready to watch (already run through /videos), so tapping a
-    catalog card in the app is always an instant "done" - never a first-time ingest wait."""
+    """Today's CNN/BBC uploads, as collected by admin_sync.py. Each entry's video_id is only
+    included once it's actually ready to watch, so tapping a catalog card in the app is always
+    an instant "done"."""
     if not CATALOG_PATH.exists():
         return []
 
@@ -215,11 +117,7 @@ def get_catalog(channel: str | None = None):
     if channel:
         items = [i for i in items if i["channel"].lower() == channel.lower()]
 
-    ready = []
-    for item in items:
-        if cache_path(item["video_id"]).exists():
-            ready.append(item)
-    return ready
+    return [item for item in items if cache_path(item["video_id"]).exists()]
 
 
 @app.post("/auth/signup")

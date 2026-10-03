@@ -1,8 +1,8 @@
-"""Runs on the local PC (residential IP, not blocked by YouTube's bot detection) and hands off
-to the AWS server (blocked) for everything else: scans the same channels catalog.py always has,
-downloads just the audio for each new short-enough video, and uploads it to the server's
-/admin/ingest endpoint, which transcribes/translates/extracts idioms and folds the result into
-its own catalog.json.
+"""Runs on the local PC (residential IP, not blocked by YouTube's bot detection): scans the same
+channels catalog.py always has, downloads the audio for each new short-enough video, runs the
+whole Whisper/NLLB/Ollama pipeline right here, and publishes only the finished result to the
+server's /admin/publish endpoint. The server no longer runs any models - it just stores and
+serves what this sends, which is what lets it be a tiny, cheap instance.
 
 This replaces catalog.py --preseed as the thing that actually keeps the catalog fresh - catalog.py
 is still useful standalone (e.g. for local dev against a local server), but on this machine the
@@ -16,8 +16,10 @@ the ADMIN_TOKEN env var (see /etc/systemd/system/englishbite-api.service on the 
 """
 import datetime
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import requests
@@ -77,25 +79,41 @@ def _download_audio(video_id: str) -> Path:
     return files[0]
 
 
-def _upload(token: str, item: dict, audio_path: Path) -> None:
-    with audio_path.open("rb") as f:
-        resp = requests.post(
-            f"{SERVER_URL}/admin/ingest",
-            headers={"X-Admin-Token": token},
-            data={
-                "video_id": item["video_id"],
-                "title": item["title"],
-                "channel": item["channel"],
-                "thumbnail": item.get("thumbnail") or "",
-                "view_count": item["view_count"],
-                "duration": item["duration"],
-                "upload_date": item.get("upload_date") or "",
-                "timestamp": item["timestamp"],
-                "category": item["category"],
-            },
-            files={"audio": (audio_path.name, f)},
-            timeout=300,
-        )
+def _ensure_ollama() -> None:
+    """Idiom extraction calls a local Ollama server, and idioms.py quietly skips a chunk it
+    can't get an answer for - so a run started with Ollama down would publish videos with no
+    idioms, permanently (the result gets cached). Make sure it's actually answering first, and
+    stop the whole run rather than publish degraded results if it won't start."""
+    def up() -> bool:
+        try:
+            return requests.get("http://127.0.0.1:11434/api/tags", timeout=3).status_code == 200
+        except requests.RequestException:
+            return False
+
+    if up():
+        return
+    print("Ollama가 꺼져 있어서 시작합니다...", flush=True)
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
+    for _ in range(30):
+        time.sleep(2)
+        if up():
+            return
+    raise SystemExit("Ollama를 시작하지 못해서 이번 동기화를 중단합니다 (관용구 없는 결과를 저장하지 않기 위해).")
+
+
+def _process_and_publish(token: str, item: dict, audio_path: Path) -> None:
+    # Imported here, not at the top: pulling in torch/whisper/transformers takes many seconds
+    # and a few GB of RAM, wasted on the (most common) runs where nothing is new.
+    from pipeline import process_uploaded_audio
+
+    result = process_uploaded_audio(item["video_id"], audio_path)
+    resp = requests.post(
+        f"{SERVER_URL}/admin/publish",
+        headers={"X-Admin-Token": token},
+        json={"result": result, "catalog_entry": item},
+        timeout=120,
+    )
     resp.raise_for_status()
 
 
@@ -108,6 +126,7 @@ def sync() -> None:
     # today (local midnight) keeps each run's batch small enough to actually catch up.
     midnight = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     cutoff = midnight.timestamp()
+    ollama_checked = False
 
     for channel_name, url in CHANNELS.items():
         print(f"[{channel_name}] checking latest {RECENT_CHECK_COUNT} uploads...", flush=True)
@@ -153,10 +172,13 @@ def sync() -> None:
                 "category": classify_category(title),
             }
             try:
-                _upload(token, item, audio_path)
-                print(f"  [uploaded] {video_id} - server will transcribe/translate")
+                if not ollama_checked:
+                    _ensure_ollama()
+                    ollama_checked = True
+                _process_and_publish(token, item, audio_path)
+                print(f"  [published] {video_id}")
             except Exception as e:
-                print(f"  [FAILED upload] {video_id}: {e}")
+                print(f"  [FAILED process/publish] {video_id}: {e}")
             finally:
                 shutil.rmtree(audio_path.parent, ignore_errors=True)
 
