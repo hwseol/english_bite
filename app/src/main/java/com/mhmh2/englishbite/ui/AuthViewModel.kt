@@ -59,6 +59,22 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Permanent account deletion; the server re-checks the password, so a wrong one just
+     * surfaces its message and leaves the user logged in. */
+    fun deleteAccount(password: String) {
+        val email = _uiState.value.email ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            try {
+                ApiClient.authApi.deleteAccount(LoginRequest(email, password))
+                tokenStore.clear()
+                _uiState.value = AuthUiState()
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isLoading = false, error = errorMessage(e))
+            }
+        }
+    }
+
     fun logout() {
         tokenStore.clear()
         _uiState.value = AuthUiState()

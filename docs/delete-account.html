@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EnglishBite 계정 삭제</title>
+<style>
+  body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 20px 80px; line-height: 1.7; color: #222; }
+  h1 { font-size: 22px; }
+  p, li, label { font-size: 15px; }
+  label { display: block; margin-top: 16px; font-weight: 600; }
+  input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; margin-top: 6px; border: 1px solid #bbb; border-radius: 6px; }
+  button { margin-top: 24px; width: 100%; padding: 12px; font-size: 16px; border: 0; border-radius: 6px; background: #c62828; color: #fff; }
+  button:disabled { opacity: .5; }
+  #msg { margin-top: 20px; font-weight: 600; }
+  .ok { color: #2e7d32; } .err { color: #c62828; }
+  .note { color: #666; font-size: 13px; margin-top: 28px; }
+</style>
+</head>
+<body>
+<h1>EnglishBite 계정 삭제</h1>
+<p>EnglishBite 계정(이메일, 닉네임, 로그인 정보)을 영구적으로 삭제합니다.
+삭제하면 복구할 수 없습니다. 앱 안에서도 <strong>계정 아이콘 → 회원 탈퇴</strong>로 삭제할 수 있습니다.</p>
+<ul>
+  <li>삭제되는 정보: 이메일 주소, 닉네임, 비밀번호(암호화본), 로그인 기록</li>
+  <li>단어장 등 기기에 저장된 학습 데이터는 서버에 없으며 앱을 삭제하면 함께 지워집니다.</li>
+</ul>
+
+<form id="f">
+  <label>가입한 이메일<input id="email" type="email" autocomplete="email" required></label>
+  <label>비밀번호<input id="pw" type="password" autocomplete="current-password" required></label>
+  <button id="btn" type="submit">계정 영구 삭제</button>
+</form>
+<div id="msg"></div>
+
+<p class="note">비밀번호를 잊으셨다면 가입한 이메일로 <strong>mhmh2090@gmail.com</strong>에 삭제를 요청해 주세요.
+본인 확인 후 처리해 드립니다.</p>
+
+<script>
+document.getElementById("f").addEventListener("submit", async function (e) {
+  e.preventDefault();
+  if (!confirm("계정을 영구적으로 삭제할까요? 되돌릴 수 없습니다.")) return;
+  var btn = document.getElementById("btn"), msg = document.getElementById("msg");
+  btn.disabled = true; msg.className = ""; msg.textContent = "처리 중...";
+  try {
+    var r = await fetch("https://184-193-203-68.sslip.io/auth/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: document.getElementById("email").value, password: document.getElementById("pw").value })
+    });
+    var j = await r.json().catch(function () { return {}; });
+    if (r.ok) { msg.className = "ok"; msg.textContent = "계정이 삭제되었습니다."; document.getElementById("f").reset(); }
+    else { msg.className = "err"; msg.textContent = j.detail || "삭제하지 못했어요. 잠시 후 다시 시도해주세요."; }
+  } catch (err) {
+    msg.className = "err"; msg.textContent = "연결에 문제가 있어요. 잠시 후 다시 시도해주세요.";
+  }
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>

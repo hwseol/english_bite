@@ -121,6 +121,20 @@ def verify_login(email: str, password: str) -> sqlite3.Row:
     return row
 
 
+def delete_user(email: str, password: str) -> None:
+    """Permanently removes the account and every session belonging to it. Re-verifies the
+    password rather than trusting a session token, so the same call also serves the public
+    web deletion form where the person isn't logged in anywhere."""
+    user = verify_login(email, password)
+    conn = _connect()
+    try:
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user["id"],))
+        conn.execute("DELETE FROM users WHERE id = ?", (user["id"],))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def create_session(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)

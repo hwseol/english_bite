@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import auth_db
@@ -22,6 +23,14 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
 # translation, Ollama idiom extraction) runs on the PC and arrives via /admin/publish. That is
 # what lets this run on a tiny instance instead of the 8GB one those models needed.
 app = FastAPI(title="EnglishBite API")
+# Only the GitHub Pages deletion form (docs/delete-account.html) calls this API from a browser;
+# the Android app isn't subject to CORS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://hwseol.github.io"],
+    allow_methods=["POST"],
+    allow_headers=["Content-Type"],
+)
 auth_db.init_db()
 
 
@@ -138,6 +147,17 @@ def login(req: LoginRequest):
         raise HTTPException(status_code=400, detail=str(e))
     token = auth_db.create_session(user["id"])
     return {"token": token, **auth_db.user_public(user)}
+
+
+@app.post("/auth/delete")
+def delete_account(req: LoginRequest):
+    """Account deletion, required by Google Play for any app with accounts. Used both by the
+    in-app "회원 탈퇴" button and by the public web form (docs/delete-account.html)."""
+    try:
+        auth_db.delete_user(req.email, req.password)
+    except auth_db.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "deleted"}
 
 
 @app.get("/auth/me")

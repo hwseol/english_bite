@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -68,7 +69,14 @@ fun LoginScreen(
         // is what "pressing the account icon does nothing" turned out to be - fixed by giving
         // "already logged in" its own view instead of ever auto-navigating off this screen.
         if (uiState.isLoggedIn) {
-            LoggedInView(nickname = uiState.nickname.orEmpty(), email = uiState.email.orEmpty(), onLogout = viewModel::logout)
+            LoggedInView(
+                nickname = uiState.nickname.orEmpty(),
+                email = uiState.email.orEmpty(),
+                uiState = uiState,
+                onLogout = viewModel::logout,
+                onDelete = viewModel::deleteAccount,
+                onClearError = viewModel::clearError
+            )
         } else {
             AuthForm(viewModel = viewModel, uiState = uiState)
         }
@@ -76,7 +84,62 @@ fun LoginScreen(
 }
 
 @Composable
-private fun LoggedInView(nickname: String, email: String, onLogout: () -> Unit) {
+private fun LoggedInView(
+    nickname: String,
+    email: String,
+    uiState: AuthUiState,
+    onLogout: () -> Unit,
+    onDelete: (String) -> Unit,
+    onClearError: () -> Unit
+) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deletePassword by remember { mutableStateOf("") }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showDeleteDialog = false
+                deletePassword = ""
+                onClearError()
+            },
+            title = { Text("회원 탈퇴") },
+            text = {
+                Column {
+                    Text("계정이 영구적으로 삭제되며 되돌릴 수 없어요. 계속하려면 비밀번호를 입력해주세요.")
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = deletePassword,
+                        onValueChange = { deletePassword = it },
+                        label = { Text("비밀번호") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    uiState.error?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { onDelete(deletePassword) },
+                    enabled = !uiState.isLoading && deletePassword.isNotBlank()
+                ) {
+                    Text("탈퇴", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    deletePassword = ""
+                    onClearError()
+                }) { Text("취소") }
+            }
+        )
+    }
+
     Icon(
         imageVector = Icons.Default.AccountCircle,
         contentDescription = null,
@@ -90,6 +153,10 @@ private fun LoggedInView(nickname: String, email: String, onLogout: () -> Unit) 
     Spacer(Modifier.height(24.dp))
     OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
         Text("로그아웃")
+    }
+    Spacer(Modifier.height(8.dp))
+    TextButton(onClick = { showDeleteDialog = true }, modifier = Modifier.fillMaxWidth()) {
+        Text("회원 탈퇴", color = MaterialTheme.colorScheme.error)
     }
 }
 
