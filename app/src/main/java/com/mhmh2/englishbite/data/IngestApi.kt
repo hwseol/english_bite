@@ -28,7 +28,7 @@ object ApiClient {
     // "<ip-with-dashes>.sslip.io" straight back to that IP with no registration needed. nginx
     // in front of the API (see /etc/nginx/conf.d/englishbite.conf on the server) terminates a
     // real Let's Encrypt certificate for that hostname and proxies through to the API on 8000.
-    private const val BASE_URL = "https://13-218-170-114.sslip.io/"
+    private const val BASE_URL = "https://184-193-203-68.sslip.io/"
 
     private val retrofit: Retrofit by lazy {
         val logging = HttpLoggingInterceptor().apply {
