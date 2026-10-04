@@ -1,8 +1,6 @@
 package com.mhmh2.englishbite
 
-import android.Manifest
 import android.app.PictureInPictureParams
-import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
@@ -10,9 +8,7 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -79,23 +75,9 @@ class MainActivity : ComponentActivity() {
         catalogViewModel.refresh(silent = true)
     }
 
-    private val requestNotificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op either way -
-            the foreground service for background playback still starts without it; the user
-            just won't see its notification, matching what happens if they deny/revoke it later. */ }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        // Needed on API 33+ for the background-playback foreground service's notification to
-        // actually show - asked once up front rather than at the moment a video starts playing,
-        // so it doesn't interrupt someone mid-video.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
         setContent {
             EnglishBiteTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {

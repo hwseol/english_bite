@@ -96,7 +96,6 @@ import com.mhmh2.englishbite.data.Idiom
 import com.mhmh2.englishbite.data.Sentence
 import com.mhmh2.englishbite.data.VideoResult
 import com.mhmh2.englishbite.data.Word
-import com.mhmh2.englishbite.playback.PlaybackForegroundService
 import com.mhmh2.englishbite.vocab.SavedIdiomsViewModel
 import com.mhmh2.englishbite.ui.theme.BiteBlue
 import com.mhmh2.englishbite.ui.theme.KaraokeHighlightBlue
@@ -656,17 +655,6 @@ fun StudyScreen(
         onDispose { setFullscreen(false) }
     }
 
-    // Keeps the process alive (via a foreground service + its mandatory notification) for as
-    // long as this screen has ever started playing - not tied to isPlaying/paused so the
-    // notification doesn't flicker on every tap-to-pause. Stops the moment the user actually
-    // leaves the video, not just backgrounds the app.
-    DisposableEffect(hasStartedPlaying) {
-        if (hasStartedPlaying) {
-            PlaybackForegroundService.start(context, videoTitle ?: result.video_id)
-        }
-        onDispose { PlaybackForegroundService.stop(context) }
-    }
-
     // Minimized takes priority: back from a minimized mini-player closes it outright rather
     // than trying to re-expand first - the mini-player bar itself (tap to expand) is already
     // right there if that's what was wanted instead.
@@ -755,11 +743,10 @@ fun StudyScreen(
                     YouTubePlayerView(ctx).apply {
                         lifecycleOwner.lifecycle.addObserver(this)
                         enableAutomaticInitialization = false
-                        // Without this, the player library itself pauses playback the moment
-                        // the Activity's lifecycle hits ON_STOP (screen off, or backgrounded) -
-                        // the whole point of the foreground service below is to keep playing
-                        // through exactly that.
-                        enableBackgroundPlayback(true)
+                        // Background playback is deliberately NOT enabled: YouTube's API terms
+                        // don't allow an embedded player to keep playing once it's no longer
+                        // visible, so the library pauses on ON_STOP (screen off / app
+                        // backgrounded). PiP keeps playing - the video stays on screen there.
                         // controls(0) hides YouTube's own control bar entirely - this app now
                         // drives play/pause itself (tap-to-toggle below) and sentence navigation
                         // via its own controls, so YouTube's bar was a second, mostly-redundant
@@ -819,29 +806,13 @@ fun StudyScreen(
             // pointerInput() modifier placed only on the outer Row: tap-to-expand and drag-to-
             // expand both silently did nothing until this was added, confirmed by testing
             // coordinates that were unambiguously over plain video content, not the icon buttons.
-            // Also carries the same paused-state scrim as the full view below, for the same
-            // reason: YouTube's iframe shows its own promotional overlay (channel branding, a
-            // suggested-video card, a share icon) whenever paused, with no way to disable it -
-            // the mini widget never had a scrim of its own, so pausing it left that showing.
-            // While playing, a much subtler top/bottom gradient (per the Stitch mini-player
-            // layout) replaces the plain transparent background instead, just enough to keep the
-            // corner icon buttons readable against a bright video frame.
+            // Fully transparent on purpose: YouTube's terms don't allow darkening or covering
+            // any part of the embedded player (including the channel branding / suggested-video
+            // card it shows while paused), so there's no scrim here.
             if (showAsMini) {
-                val miniScrimBrush = Brush.verticalGradient(
-                    0f to MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.6f),
-                    0.45f to Color.Transparent,
-                    1f to MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.9f)
-                )
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .then(
-                            if (hasStartedPlaying && !isPlaying) {
-                                Modifier.background(Color.Black.copy(alpha = 0.94f))
-                            } else {
-                                Modifier.background(miniScrimBrush)
-                            }
-                        )
                         .pointerInput(Unit) {
                             var totalDrag = 0f
                             val expandThresholdPx = 40.dp.toPx()
@@ -867,16 +838,13 @@ fun StudyScreen(
             // Tap-anywhere-to-toggle playback, in both the small embedded view and fullscreen -
             // safe to sit right over the video now that YouTube's own control bar is off
             // (controls(0) above), so there's no native touch target underneath left to block.
-            // While paused, YouTube's iframe shows its own promotional overlay underneath
-            // (channel branding, a suggested-video card, a share icon) - there's no public
-            // parameter to turn that off, so a solid scrim on top hides it instead, with our
-            // own play icon as the only thing the viewer actually sees.
+            // While paused, YouTube's iframe shows its own overlay (channel branding, a
+            // suggested-video card, a share icon). It's left fully visible - hiding or covering
+            // it breaks YouTube's player terms - so nothing is drawn over the video here.
             if (!isInPip && !isMinimized) {
-                val paused = hasStartedPlaying && !isPlaying
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(if (paused) Color.Black.copy(alpha = 0.94f) else Color.Transparent)
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
@@ -906,27 +874,8 @@ fun StudyScreen(
                                     )
                                 }
                             } else Modifier
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!hasStartedPlaying || isBuffering) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(36.dp))
-                    } else if (paused) {
-                        Box(
-                            modifier = Modifier
-                                .background(Color.White.copy(alpha = 0.16f), CircleShape)
-                                .size(72.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "재생",
-                                tint = Color.White,
-                                modifier = Modifier.size(40.dp)
-                            )
-                        }
-                    }
-                }
+                        )
+                )
             }
 
             // Pause/play and close, overlaid directly on the small floating video itself (top
