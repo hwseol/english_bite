@@ -13,6 +13,7 @@ Usage:
     python catalog.py --preseed  # also run each newly-found video through the translation pipeline
 """
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -35,7 +36,9 @@ WINDOW_SECONDS = 24 * 60 * 60  # a rolling 24h window by absolute timestamp, not
                                  # string match - upload_date's timezone vs. the server's local
                                  # date was silently dropping videos right at the day boundary
 
-CATALOG_PATH = Path(__file__).parent / "catalog.json"
+# EB_DATA_DIR lets the server's dev instance keep its data apart from production's; unset (the PC
+# and the production server) it's simply next to this file as before.
+CATALOG_PATH = Path(os.environ.get("EB_DATA_DIR") or Path(__file__).parent) / "catalog.json"
 
 # Ordered checked in this sequence, first match wins - a title mentioning both a politician and
 # a stock ticker is far more likely a politics story with a market angle than the reverse, so

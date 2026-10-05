@@ -22,7 +22,7 @@ android {
         applicationId = "com.mhmh2.englishbite"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
+        versionCode = 6
         versionName = "1.0"
     }
 
@@ -38,7 +38,17 @@ android {
     }
 
     buildTypes {
+        // Debug builds talk to the dev server (same machine as production, separate data and
+        // code - see backend/deploy/README.md) and ignore the remote config file, so trying
+        // something never touches testers' data. Release builds use production and follow
+        // docs/app-config.json.
+        debug {
+            buildConfigField("String", "DEFAULT_API_BASE", "\"https://dev.184-193-203-68.sslip.io/\"")
+            buildConfigField("boolean", "USE_REMOTE_CONFIG", "false")
+        }
         release {
+            buildConfigField("String", "DEFAULT_API_BASE", "\"https://184-193-203-68.sslip.io/\"")
+            buildConfigField("boolean", "USE_REMOTE_CONFIG", "true")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -61,6 +71,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     lint {

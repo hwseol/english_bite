@@ -1,7 +1,9 @@
 package com.mhmh2.englishbite.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mhmh2.englishbite.BuildConfig
 
 /** Reached only from the catalog's account icon - never shown automatically, since every
  * feature in the app already works without an account. Google Sign-In isn't wired up yet (it
@@ -85,6 +88,19 @@ fun LoginScreen(
         } else {
             AuthForm(viewModel = viewModel, uiState = uiState)
         }
+
+        // Always available, logged in or not - the one place testers (and later users) can tell
+        // the developer something is wrong. Opens the mail app with the app/device details
+        // already filled in, so "it didn't work" arrives with the information needed to look.
+        Spacer(Modifier.height(24.dp))
+        val context = LocalContext.current
+        TextButton(
+            onClick = { openFeedbackMail(context) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("문의 · 의견 보내기")
+        }
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -395,4 +411,19 @@ private fun AuthForm(viewModel: AuthViewModel, uiState: AuthUiState) {
     ) {
         Text(if (isSignupMode) "이미 계정이 있으신가요? 로그인" else "계정이 없으신가요? 회원가입")
     }
+}
+
+private fun openFeedbackMail(context: Context) {
+    val intent = Intent(Intent.ACTION_SENDTO).apply {
+        data = Uri.parse("mailto:")
+        putExtra(Intent.EXTRA_EMAIL, arrayOf("mhmh2090@gmail.com"))
+        putExtra(Intent.EXTRA_SUBJECT, "[EnglishBite] 문의 · 의견")
+        putExtra(
+            Intent.EXTRA_TEXT,
+            "\n\n---\n(아래는 문제를 찾는 데 필요한 정보예요. 지우지 말아주세요)\n" +
+                "앱 버전: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
+                "기기: ${Build.MANUFACTURER} ${Build.MODEL} / Android ${Build.VERSION.RELEASE}\n"
+        )
+    }
+    runCatching { context.startActivity(intent) }
 }

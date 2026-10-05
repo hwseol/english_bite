@@ -9,6 +9,7 @@
          just switches to the mini-player. Off, so a back swipe/press is a plain instant action
          with no system preview animation in front of it. -->
     <application
+        android:name=".EnglishBiteApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

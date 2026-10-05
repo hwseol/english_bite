@@ -50,6 +50,7 @@ data class IngestRequest(val url: String)
 
 data class SignupRequest(val email: String, val nickname: String, val password: String)
 data class LoginRequest(val email: String, val password: String)
+data class CrashReport(val app_version: Int, val device: String, val android: String, val trace: String)
 data class ChangePasswordRequest(val email: String, val old_password: String, val new_password: String)
 data class AuthResponse(val token: String, val email: String, val nickname: String)
 data class UserProfile(val email: String, val nickname: String)

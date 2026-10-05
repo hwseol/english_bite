@@ -9,6 +9,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import com.mhmh2.englishbite.data.RemoteConfig
+import com.mhmh2.englishbite.ui.UpdateRequiredScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,6 +78,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         catalogViewModel.refresh(silent = true)
+        // Picks up a changed server address / raised minimum version without a restart
+        // (throttled inside RemoteConfig, so resuming repeatedly doesn't hit the network).
+        lifecycleScope.launch(Dispatchers.IO) { RemoteConfig.refresh(applicationContext) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,6 +94,14 @@ class MainActivity : ComponentActivity() {
                     var showSplash by remember { mutableStateOf(true) }
                     if (showSplash) {
                         SplashScreen(onFinished = { showSplash = false })
+                        return@Surface
+                    }
+
+                    // The server has moved past what this build can talk to (see RemoteConfig):
+                    // nothing else in the app would work properly, so don't show it.
+                    val remoteConfig by RemoteConfig.config.collectAsState()
+                    if (remoteConfig.min_version_code > BuildConfig.VERSION_CODE) {
+                        UpdateRequiredScreen()
                         return@Surface
                     }
 

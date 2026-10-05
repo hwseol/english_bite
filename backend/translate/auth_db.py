@@ -5,12 +5,14 @@ plus one sessions table doesn't need either.
 """
 
 import hashlib
+import os
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "users.db"
+# EB_DATA_DIR keeps the dev instance's accounts apart from production's (see server.py).
+DB_PATH = Path(os.environ.get("EB_DATA_DIR") or Path(__file__).parent) / "users.db"
 
 SESSION_LIFETIME = timedelta(days=30)
 

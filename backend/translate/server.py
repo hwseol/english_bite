@@ -11,9 +11,16 @@ from pydantic import BaseModel
 import auth_db
 from catalog import upsert_catalog_entry
 
-CACHE_DIR = Path(__file__).parent / "cache"
+# Everything the server stores lives under DATA_DIR. Production leaves EB_DATA_DIR unset (data
+# sits next to the code, as it always has); the dev instance points it at its own folder so
+# testing never touches real accounts or videos.
+DATA_DIR = Path(os.environ.get("EB_DATA_DIR") or Path(__file__).parent)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = DATA_DIR / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
-CATALOG_PATH = Path(__file__).parent / "catalog.json"
+CATALOG_PATH = DATA_DIR / "catalog.json"
+CRASH_LOG = DATA_DIR / "crashes.jsonl"
+CRASH_LOG_MAX_BYTES = 5 * 1024 * 1024  # stop accepting once it's this big - nobody is reading a flood
 
 # Shared secret the PC-side admin_sync.py sends along with each finished video. Set via the
 # ADMIN_TOKEN env var on the server (see englishbite-api.service); with no env var set the admin
@@ -50,6 +57,13 @@ class ChangePasswordRequest(BaseModel):
     email: str
     old_password: str
     new_password: str
+
+
+class CrashReport(BaseModel):
+    app_version: int = 0
+    device: str = ""
+    android: str = ""
+    trace: str = ""
 
 
 class IngestRequest(BaseModel):
@@ -186,6 +200,25 @@ def me(authorization: str | None = Header(None)):
     if user is None:
         raise HTTPException(status_code=401, detail="로그인이 필요해요.")
     return auth_db.user_public(user)
+
+
+@app.post("/telemetry/crash")
+def report_crash(req: CrashReport):
+    """The app saves a stack trace when it crashes and sends it here on its next launch. Only
+    app version, device model, Android version and the trace itself - nothing about the person.
+    Read them with view_crashes.py."""
+    if CRASH_LOG.exists() and CRASH_LOG.stat().st_size > CRASH_LOG_MAX_BYTES:
+        return {"status": "ignored"}
+    entry = {
+        "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "app_version": req.app_version,
+        "device": req.device[:80],
+        "android": req.android[:20],
+        "trace": req.trace[:6000],
+    }
+    with CRASH_LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return {"status": "ok"}
 
 
 @app.get("/health")
