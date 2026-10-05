@@ -12,6 +12,9 @@ interface AuthApi {
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): AuthResponse
 
+    @POST("auth/change-password")
+    suspend fun changePassword(@Body request: ChangePasswordRequest): AuthResponse
+
     @POST("auth/delete")
     suspend fun deleteAccount(@Body request: LoginRequest)
 

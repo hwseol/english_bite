@@ -135,6 +135,47 @@ def delete_user(email: str, password: str) -> None:
         conn.close()
 
 
+def _set_password(user_id: int, new_password: str) -> None:
+    """Stores a new password and signs the account out everywhere (drops every session)."""
+    password_hash, salt = _hash_password(new_password)
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?",
+            (password_hash, salt, user_id),
+        )
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def change_password(email: str, old_password: str, new_password: str) -> sqlite3.Row:
+    """Self-service change: proves knowledge of the old password, then invalidates every
+    existing session. Returns the user row so the caller can issue a fresh session."""
+    user = verify_login(email, old_password)
+    if len(new_password) < 8:
+        raise AuthError("새 비밀번호는 8자 이상이어야 해요.")
+    _set_password(user["id"], new_password)
+    return user
+
+
+def admin_reset_password(email: str, new_password: str) -> bool:
+    """Operator-side reset for someone who forgot their password (see reset_password.py) -
+    there's no email sender on this server, so recovery goes through the developer. Returns
+    False if no such account exists."""
+    email = email.strip().lower()
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return False
+    _set_password(row["id"], new_password)
+    return True
+
+
 def create_session(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)

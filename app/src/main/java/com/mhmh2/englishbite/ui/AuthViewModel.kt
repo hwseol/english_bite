@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import com.mhmh2.englishbite.data.ApiClient
 import com.mhmh2.englishbite.data.AuthTokenStore
+import com.mhmh2.englishbite.data.ChangePasswordRequest
 import com.mhmh2.englishbite.data.LoginRequest
 import com.mhmh2.englishbite.data.SignupRequest
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,7 +18,8 @@ data class AuthUiState(
     val nickname: String? = null,
     val email: String? = null,
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val notice: String? = null
 ) {
     val isLoggedIn: Boolean get() = nickname != null
 }
@@ -75,13 +77,35 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** The server drops every session on a password change and returns a fresh token, so this
+     * device stays logged in while any other device has to log in again. */
+    fun changePassword(oldPassword: String, newPassword: String) {
+        val email = _uiState.value.email ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, notice = null)
+            try {
+                val response = ApiClient.authApi.changePassword(
+                    ChangePasswordRequest(email, oldPassword, newPassword)
+                )
+                tokenStore.save(response)
+                _uiState.value = AuthUiState(
+                    nickname = response.nickname,
+                    email = response.email,
+                    notice = "비밀번호를 변경했어요."
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isLoading = false, error = errorMessage(e))
+            }
+        }
+    }
+
     fun logout() {
         tokenStore.clear()
         _uiState.value = AuthUiState()
     }
 
     fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null)
+        _uiState.value = _uiState.value.copy(error = null, notice = null)
     }
 
     // The server returns {"detail": "사람이 읽을 메시지"} on a 400 (duplicate email, wrong

@@ -45,6 +45,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    email: str
+    old_password: str
+    new_password: str
+
+
 class IngestRequest(BaseModel):
     url: str
 
@@ -145,6 +151,17 @@ def login(req: LoginRequest):
         user = auth_db.verify_login(req.email, req.password)
     except auth_db.AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    token = auth_db.create_session(user["id"])
+    return {"token": token, **auth_db.user_public(user)}
+
+
+@app.post("/auth/change-password")
+def change_password(req: ChangePasswordRequest):
+    try:
+        user = auth_db.change_password(req.email, req.old_password, req.new_password)
+    except auth_db.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # Every old session was just dropped, so hand back a fresh one for this device.
     token = auth_db.create_session(user["id"])
     return {"token": token, **auth_db.user_public(user)}
 

@@ -1,0 +1,7 @@
+[Unit]
+Description=EnglishBite accounts DB snapshot
+
+[Service]
+Type=oneshot
+User=ec2-user
+ExecStart=/usr/bin/python3 /home/ec2-user/english_bite/backend/deploy/backup_users.py

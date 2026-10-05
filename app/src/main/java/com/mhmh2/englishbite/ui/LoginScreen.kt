@@ -1,5 +1,7 @@
 package com.mhmh2.englishbite.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +28,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -75,6 +79,7 @@ fun LoginScreen(
                 uiState = uiState,
                 onLogout = viewModel::logout,
                 onDelete = viewModel::deleteAccount,
+                onChangePassword = viewModel::changePassword,
                 onClearError = viewModel::clearError
             )
         } else {
@@ -90,8 +95,90 @@ private fun LoggedInView(
     uiState: AuthUiState,
     onLogout: () -> Unit,
     onDelete: (String) -> Unit,
+    onChangePassword: (String, String) -> Unit,
     onClearError: () -> Unit
 ) {
+    var showChangeDialog by remember { mutableStateOf(false) }
+    var oldPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var newPasswordConfirm by remember { mutableStateOf("") }
+    val newPasswordsMatch = newPassword == newPasswordConfirm
+
+    // Close the dialog once the change went through (the view model sets the notice then).
+    LaunchedEffect(uiState.notice) {
+        if (uiState.notice != null) {
+            showChangeDialog = false
+            oldPassword = ""
+            newPassword = ""
+            newPasswordConfirm = ""
+        }
+    }
+
+    if (showChangeDialog) {
+        val closeChange = {
+            showChangeDialog = false
+            oldPassword = ""
+            newPassword = ""
+            newPasswordConfirm = ""
+            onClearError()
+        }
+        AlertDialog(
+            onDismissRequest = closeChange,
+            title = { Text("비밀번호 변경") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = oldPassword,
+                        onValueChange = { oldPassword = it },
+                        label = { Text("현재 비밀번호") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = { newPassword = it },
+                        label = { Text("새 비밀번호 (8자 이상)") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newPasswordConfirm,
+                        onValueChange = { newPasswordConfirm = it },
+                        label = { Text("새 비밀번호 확인") },
+                        singleLine = true,
+                        isError = newPasswordConfirm.isNotEmpty() && !newPasswordsMatch,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    val message = when {
+                        uiState.error != null -> uiState.error
+                        newPasswordConfirm.isNotEmpty() && !newPasswordsMatch -> "새 비밀번호가 일치하지 않아요."
+                        else -> null
+                    }
+                    message?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { onChangePassword(oldPassword, newPassword) },
+                    enabled = !uiState.isLoading && oldPassword.isNotBlank() &&
+                        newPassword.isNotBlank() && newPasswordsMatch
+                ) { Text("변경") }
+            },
+            dismissButton = { TextButton(onClick = closeChange) { Text("취소") } }
+        )
+    }
+
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deletePassword by remember { mutableStateOf("") }
 
@@ -150,7 +237,15 @@ private fun LoggedInView(
     Text(text = nickname, style = MaterialTheme.typography.headlineSmall)
     Spacer(Modifier.height(4.dp))
     Text(text = email, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    uiState.notice?.let {
+        Spacer(Modifier.height(12.dp))
+        Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+    }
     Spacer(Modifier.height(24.dp))
+    OutlinedButton(onClick = { showChangeDialog = true }, modifier = Modifier.fillMaxWidth()) {
+        Text("비밀번호 변경")
+    }
+    Spacer(Modifier.height(8.dp))
     OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
         Text("로그아웃")
     }
@@ -178,8 +273,8 @@ private fun AuthForm(viewModel: AuthViewModel, uiState: AuthUiState) {
     )
     Spacer(Modifier.height(8.dp))
     Text(
-        text = "로그인하지 않아도 모든 기능을 그대로 쓸 수 있어요. 로그인하면 여러 " +
-            "기기에서 단어장이 동기화돼요.",
+        text = "로그인하지 않아도 모든 기능을 그대로 쓸 수 있어요. 계정을 만들어 두면 " +
+            "앞으로 추가될 기기 간 단어장 동기화를 바로 쓸 수 있어요.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -266,6 +361,30 @@ private fun AuthForm(viewModel: AuthViewModel, uiState: AuthUiState) {
     }
 
     Spacer(Modifier.height(12.dp))
+
+    if (!isSignupMode) {
+        val context = LocalContext.current
+        TextButton(
+            onClick = {
+                // No mail service behind the server, so recovery goes through the developer:
+                // this opens the user's mail app with the request already addressed.
+                val intent = Intent(Intent.ACTION_SENDTO).apply {
+                    data = Uri.parse("mailto:")
+                    putExtra(Intent.EXTRA_EMAIL, arrayOf("mhmh2090@gmail.com"))
+                    putExtra(Intent.EXTRA_SUBJECT, "[EnglishBite] 비밀번호 재설정 요청")
+                    putExtra(
+                        Intent.EXTRA_TEXT,
+                        "가입한 이메일 주소: ${email.trim()}\n\n비밀번호를 잊어버려서 재설정을 요청합니다. " +
+                            "(이 메일을 보내신 주소가 가입한 이메일과 같아야 처리돼요.)"
+                    )
+                }
+                runCatching { context.startActivity(intent) }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("비밀번호를 잊으셨나요?")
+        }
+    }
 
     TextButton(
         onClick = {
