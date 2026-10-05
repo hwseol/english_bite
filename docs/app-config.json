@@ -1,5 +1,5 @@
 {
-  "api_base": "https://184-193-203-68.sslip.io/",
-  "min_version_code": 0,
+  "api_base": "https://dev.184-193-203-68.sslip.io/",
+  "min_version_code": 99,
   "latest_version_code": 6
 }
