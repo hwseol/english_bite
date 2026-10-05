@@ -7,6 +7,7 @@
 <style>
   body { font-family: -apple-system, "Malgun Gothic", sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 20px 80px; line-height: 1.7; color: #222; }
   h1 { font-size: 22px; }
+  h2 { font-size: 16px; margin-top: 28px; }
   p, li, label { font-size: 15px; }
   label { display: block; margin-top: 16px; font-weight: 600; }
   input { width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px; margin-top: 6px; border: 1px solid #bbb; border-radius: 6px; }
@@ -19,11 +20,22 @@
 </head>
 <body>
 <h1>EnglishBite 계정 삭제</h1>
-<p>EnglishBite 계정(이메일, 닉네임, 로그인 정보)을 영구적으로 삭제합니다.
-삭제하면 복구할 수 없습니다. 앱 안에서도 <strong>계정 아이콘 → 회원 탈퇴</strong>로 삭제할 수 있습니다.</p>
+<p><strong>EnglishBite</strong>(개발자: SeolPro)의 계정(이메일, 닉네임, 로그인 정보)을 영구적으로 삭제합니다.
+삭제하면 복구할 수 없습니다.</p>
+
+<h2>삭제 방법</h2>
+<ol>
+  <li><strong>앱에서</strong>: 앱 첫 화면의 계정 아이콘 → <strong>회원 탈퇴</strong> → 비밀번호 입력 → 탈퇴</li>
+  <li><strong>이 페이지에서</strong>: 아래에 가입한 이메일과 비밀번호를 입력하고 <strong>계정 영구 삭제</strong>를 누릅니다.</li>
+  <li><strong>비밀번호를 잊은 경우</strong>: 가입한 이메일로 mhmh2090@gmail.com에 삭제를 요청하세요. 본인 확인 후 처리합니다.</li>
+</ol>
+
+<h2>삭제되는 데이터와 보관 기간</h2>
 <ul>
-  <li>삭제되는 정보: 이메일 주소, 닉네임, 비밀번호(암호화본), 로그인 기록</li>
+  <li><strong>즉시 삭제</strong>: 이메일 주소, 닉네임, 비밀번호(암호화본), 로그인 기록(세션)</li>
+  <li><strong>백업</strong>: 장애 복구용 백업에는 삭제 후에도 <strong>최대 30일</strong> 남을 수 있으며, 그 뒤 자동으로 지워집니다. 백업은 복구 목적 외에 사용하지 않습니다.</li>
   <li>단어장 등 기기에 저장된 학습 데이터는 서버에 없으며 앱을 삭제하면 함께 지워집니다.</li>
+  <li>앱이 비정상 종료될 때 보낸 오류 기록은 이메일·닉네임과 연결되어 있지 않아 계정 삭제 대상이 아닙니다.</li>
 </ul>
 
 <form id="f">
