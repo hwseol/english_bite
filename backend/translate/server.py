@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -189,4 +190,11 @@ def me(authorization: str | None = Header(None)):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Liveness plus a freshness signal for an external uptime monitor: `fresh` goes false when
+    nothing new has been published for 48h, i.e. the PC-side sync has silently stopped (PC off,
+    yt-dlp broken, Ollama down). The sync only logs its own failures, so this is how they
+    surface."""
+    age_hours = None
+    if CATALOG_PATH.exists():
+        age_hours = round((time.time() - CATALOG_PATH.stat().st_mtime) / 3600, 1)
+    return {"status": "ok", "catalog_age_hours": age_hours, "fresh": age_hours is not None and age_hours < 48}
