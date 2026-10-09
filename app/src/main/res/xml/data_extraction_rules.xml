@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+: what may leave the device through Google backup / phone-to-phone transfer.
+     Everything (wordbook included) is kept except the login session and transient files - a
+     restored session token would sign someone into an account on a device they never logged in
+     on, and the other two are meaningless on a new install. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="auth.xml" />
+        <exclude domain="sharedpref" path="remote_config.xml" />
+        <exclude domain="file" path="crashes" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="auth.xml" />
+        <exclude domain="sharedpref" path="remote_config.xml" />
+        <exclude domain="file" path="crashes" />
+    </device-transfer>
+</data-extraction-rules>

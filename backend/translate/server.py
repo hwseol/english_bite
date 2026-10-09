@@ -1,5 +1,7 @@
+import hmac
 import json
 import os
+import re
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -75,20 +77,33 @@ class PublishRequest(BaseModel):
     catalog_entry: dict
 
 
+# A YouTube video ID is exactly 11 URL-safe characters. Anything else is rejected before it can
+# reach the filesystem: the ID becomes a file name under CACHE_DIR, and an ID like "../x" would
+# otherwise let a request read any *.json file the server user can see.
+VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}")
+
+
 def cache_path(video_id: str) -> Path:
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        raise HTTPException(status_code=404, detail="아직 준비되지 않은 영상이에요.")
     return CACHE_DIR / f"{video_id}.json"
 
 
 def extract_video_id(url: str) -> str:
     parsed = urlparse(url)
-    if parsed.hostname in ("youtu.be",):
-        return parsed.path.lstrip("/")
-    if parsed.hostname and "youtube.com" in parsed.hostname:
+    video_id = ""
+    host = parsed.hostname or ""
+    if host == "youtu.be":
+        video_id = parsed.path.lstrip("/")
+    elif host == "youtube.com" or host.endswith(".youtube.com"):
         if parsed.path == "/watch":
-            return parse_qs(parsed.query)["v"][0]
-        if parsed.path.startswith("/shorts/"):
-            return parsed.path.split("/")[2]
-    raise ValueError(f"Could not parse a video ID from URL: {url}")
+            video_id = (parse_qs(parsed.query).get("v") or [""])[0]
+        elif parsed.path.startswith("/shorts/"):
+            parts = parsed.path.split("/")
+            video_id = parts[2] if len(parts) > 2 else ""
+    if not VIDEO_ID_RE.fullmatch(video_id):
+        raise ValueError("올바른 YouTube 주소가 아니에요.")
+    return video_id
 
 
 def _done_response(video_id: str) -> dict:
@@ -100,12 +115,15 @@ def admin_publish(req: PublishRequest, x_admin_token: str | None = Header(None))
     """Counterpart to admin_sync.py: the PC has already transcribed, translated and extracted
     idioms for this video, so this just stores the finished result and adds the video to
     catalog.json."""
-    if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+    # compare_digest: a plain != leaks, through response timing, how much of a guess was right.
+    if not ADMIN_TOKEN or not hmac.compare_digest((x_admin_token or "").encode(), ADMIN_TOKEN.encode()):
         raise HTTPException(status_code=403, detail="Invalid admin token")
 
     video_id = req.catalog_entry.get("video_id")
     if not video_id or req.result.get("video_id") != video_id:
         raise HTTPException(status_code=400, detail="video_id mismatch between result and catalog_entry")
+    if not VIDEO_ID_RE.fullmatch(str(video_id)):
+        raise HTTPException(status_code=400, detail="invalid video_id")
 
     cache_path(video_id).write_text(json.dumps(req.result, ensure_ascii=False, indent=2), encoding="utf-8")
     upsert_catalog_entry(req.catalog_entry)
@@ -147,7 +165,10 @@ def get_catalog(channel: str | None = None):
     if channel:
         items = [i for i in items if i["channel"].lower() == channel.lower()]
 
-    return [item for item in items if cache_path(item["video_id"]).exists()]
+    return [
+        item for item in items
+        if VIDEO_ID_RE.fullmatch(str(item.get("video_id", ""))) and cache_path(item["video_id"]).exists()
+    ]
 
 
 @app.post("/auth/signup")
