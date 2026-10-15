@@ -59,6 +59,17 @@ for url in ["https://www.youtube.com/watch", "https://www.youtube.com/shorts/", 
             "https://evil-youtube.com/watch?v=" + VID, "not a url"]:
     check(f"malformed/foreign url -> 400 ({url[:34]})", c.post("/videos", json={"url": url}).status_code == 400)
 
+# --- hidden channels: gone from /catalog, but the video itself (e.g. a saved bookmark) still opens
+ECO = "eeEEeeEEeee"
+eco_entry = {**entry, "video_id": ECO, "channel": "The Economist"}
+eco_body = {"result": {"video_id": ECO, "sentence_count": 0, "sentences": [], "idioms": []}, "catalog_entry": eco_entry}
+check("publish economist video", c.post("/admin/publish", headers={"X-Admin-Token": "test-admin-token"}, json=eco_body).status_code == 200)
+listed = [i["video_id"] for i in c.get("/catalog").json()]
+check("hidden channel not listed", ECO not in listed, str(listed))
+check("hidden channel not listed even when asked for by name", c.get("/catalog", params={"channel": "The Economist"}).json() == [])
+check("visible channel still listed", VID in listed)
+check("hidden channel's video still opens (bookmarks)", c.get(f"/videos/{ECO}").status_code == 200)
+
 # --- accounts
 check("signup", c.post("/auth/signup", json={"email": "a@b.com", "nickname": "n", "password": "password1"}).status_code == 200)
 check("short password rejected", c.post("/auth/signup", json={"email": "c@d.com", "nickname": "n", "password": "short"}).status_code == 400)

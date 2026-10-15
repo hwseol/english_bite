@@ -231,7 +231,7 @@ fun CatalogScreen(
                                 colors = chipColors()
                             )
                         }
-                        items(listOf("CNN", "BBC News", "Bloomberg")) { channel ->
+                        items(listOf("CNN", "BBC News", "Bloomberg", "Fox Business")) { channel ->
                             FilterChip(
                                 selected = channelFilter == channel,
                                 onClick = { onChannelFilterChange(channel) },

@@ -153,6 +153,12 @@ def get_video(video_id: str):
     raise HTTPException(status_code=404, detail="아직 준비되지 않은 영상이에요.")
 
 
+# Channels that are no longer offered. Their entries stay in catalog.json and their processed
+# results stay in cache/ - so anyone's saved bookmarks from those videos still open - they are
+# just not listed. Remove a name here to bring the channel back.
+HIDDEN_CHANNELS = {"the economist"}
+
+
 @app.get("/catalog")
 def get_catalog(channel: str | None = None):
     """Today's CNN/BBC uploads, as collected by admin_sync.py. Each entry's video_id is only
@@ -162,6 +168,7 @@ def get_catalog(channel: str | None = None):
         return []
 
     items = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    items = [i for i in items if str(i.get("channel", "")).lower() not in HIDDEN_CHANNELS]
     if channel:
         items = [i for i in items if i["channel"].lower() == channel.lower()]
 
