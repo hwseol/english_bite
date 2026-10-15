@@ -9,6 +9,3 @@ build/
 captures/
 .externalNativeBuild
 .cxx
-
-# lecture-series work files (transcripts + processed parts) - large, regenerable
-backend/translate/series_work/

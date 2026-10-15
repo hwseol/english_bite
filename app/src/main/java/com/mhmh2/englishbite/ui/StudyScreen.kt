@@ -758,32 +758,14 @@ fun StudyScreen(
                             .rel(0)
                             .ccLoadPolicy(0)
                             .build()
-                        // A part of a long lecture covers only [start_second, end_second] of the
-                        // real video: begin at its start, and when playback reaches its end pause
-                        // and move on (same as a finished video). Re-armed if the viewer seeks
-                        // back into the part, e.g. by tapping a sentence to repeat it.
-                        var segmentEndHandled = false
                         initialize(object : AbstractYouTubePlayerListener() {
                             override fun onReady(player: YouTubePlayer) {
                                 youTubePlayer = player
-                                player.loadVideo(
-                                    result.youtube_id ?: result.video_id,
-                                    startSecond ?: result.start_second?.toFloat() ?: 0f
-                                )
+                                player.loadVideo(result.video_id, startSecond ?: 0f)
                             }
 
                             override fun onCurrentSecond(youTubePlayer: YouTubePlayer, second: Float) {
                                 currentSecond = second
-                                val end = result.end_second?.toFloat()
-                                if (end != null) {
-                                    if (second >= end && !segmentEndHandled) {
-                                        segmentEndHandled = true
-                                        youTubePlayer.pause()
-                                        onVideoEnded()
-                                    } else if (second < end - 2f) {
-                                        segmentEndHandled = false
-                                    }
-                                }
                             }
 
                             override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {

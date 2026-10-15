@@ -24,8 +24,8 @@ CHANNELS = {
     "CNN": "https://www.youtube.com/@CNN/videos",
     "BBC News": "https://www.youtube.com/@BBCNews/videos",
     "Bloomberg": "https://www.youtube.com/@markets/videos",
-    # The Economist and Fox Business were dropped on 2026-10-15 (no longer scanned). Videos already
-    # in the catalog stay until the app version that removes their filter chips is out.
+    "The Economist": "https://www.youtube.com/@TheEconomist/videos",
+    "Fox Business": "https://www.youtube.com/@FoxBusiness/videos",
 }
 
 MAX_DURATION_SECONDS = 20 * 60  # longer videos are skipped rather than downloaded and cut,

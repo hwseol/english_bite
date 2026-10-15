@@ -36,22 +36,14 @@ data class IngestResponse(
     val video_id: String,
     val sentence_count: Int? = null,
     val sentences: List<Sentence>? = null,
-    val idioms: List<Idiom>? = null,
-    // Set only for a part of a long lecture: the real YouTube video to play and the slice of it
-    // (in seconds) this entry covers. video_id is then the entry id ("<youtube id>-pNN").
-    val youtube_id: String? = null,
-    val start_second: Double? = null,
-    val end_second: Double? = null
+    val idioms: List<Idiom>? = null
 )
 
 data class VideoResult(
     val video_id: String,
     val sentence_count: Int,
     val sentences: List<Sentence>,
-    val idioms: List<Idiom> = emptyList(),
-    val youtube_id: String? = null,
-    val start_second: Double? = null,
-    val end_second: Double? = null
+    val idioms: List<Idiom> = emptyList()
 )
 
 data class IngestRequest(val url: String)
@@ -75,11 +67,5 @@ data class CatalogItem(
     // Nullable: entries collected before category classification existed have no such key in
     // their server-side JSON at all, and Gson leaves a missing field as null regardless of a
     // Kotlin default (it builds this via reflection, bypassing the constructor).
-    val category: String? = null,
-    // Lecture series (e.g. CS50 AI): a long video published as several parts. Only present on
-    // those entries; the server hides them from builds older than 7.
-    val series: String? = null,
-    val series_order: Int = 0,
-    val part_index: Int = 0,
-    val part_count: Int = 0
+    val category: String? = null
 )

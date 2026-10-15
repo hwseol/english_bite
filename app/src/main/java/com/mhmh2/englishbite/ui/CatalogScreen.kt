@@ -74,7 +74,6 @@ private fun channelDotColor(channel: String): Color = when (channel) {
     "Bloomberg" -> Color(0xFF3B82F6)
     "The Economist" -> Color(0xFFE3120B)
     "Fox Business" -> Color(0xFF003DA5)
-    "CS50 AI" -> Color(0xFFA855F7)
     else -> Color(0xFF9CA3AF)
 }
 
@@ -232,7 +231,7 @@ fun CatalogScreen(
                                 colors = chipColors()
                             )
                         }
-                        items(listOf("CNN", "BBC News", "Bloomberg", "CS50 AI")) { channel ->
+                        items(listOf("CNN", "BBC News", "Bloomberg", "The Economist", "Fox Business")) { channel ->
                             FilterChip(
                                 selected = channelFilter == channel,
                                 onClick = { onChannelFilterChange(channel) },
@@ -481,13 +480,7 @@ private fun CatalogCard(item: CatalogItem, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    // A lecture part has no meaningful view count; show where it comes from
-                    // instead (CS50 is CC BY-NC-SA 4.0, which asks for attribution).
-                    text = if (item.series != null) {
-                        "CS50 (Harvard) · CC BY-NC-SA 4.0"
-                    } else {
-                        "${item.channel} · ${formatViewCount(item.view_count)} · ${formatUploadTime(item.timestamp)}"
-                    },
+                    text = "${item.channel} · ${formatViewCount(item.view_count)} · ${formatUploadTime(item.timestamp)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

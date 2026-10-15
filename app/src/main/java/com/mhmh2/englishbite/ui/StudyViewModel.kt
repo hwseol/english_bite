@@ -97,8 +97,5 @@ private fun IngestResponse.toVideoResult() = VideoResult(
     video_id = video_id,
     sentence_count = sentence_count ?: 0,
     sentences = sentences.orEmpty(),
-    idioms = idioms.orEmpty(),
-    youtube_id = youtube_id,
-    start_second = start_second,
-    end_second = end_second
+    idioms = idioms.orEmpty()
 )

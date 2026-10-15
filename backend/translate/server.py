@@ -80,15 +80,7 @@ class PublishRequest(BaseModel):
 # A YouTube video ID is exactly 11 URL-safe characters. Anything else is rejected before it can
 # reach the filesystem: the ID becomes a file name under CACHE_DIR, and an ID like "../x" would
 # otherwise let a request read any *.json file the server user can see.
-# A long lecture is published as several catalog entries, each identified as "<youtube id>-pNN"
-# (e.g. WbzNRTTrX0g-p03). The suffix is fixed-format, so this is still a closed, path-safe set.
-VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}(?:-p\d{2})?")
-
-# Lecture-series entries (catalog items with a "series" key) only make sense to app builds that
-# know how to play a slice of a longer video. Older builds would try to load the entry id as a
-# YouTube id, so /catalog hides series entries from them - this is what keeps "only add to the
-# API" true for the people who haven't updated.
-SERIES_MIN_APP_VERSION = 7
+VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}")
 
 
 def cache_path(video_id: str) -> Path:
@@ -161,17 +153,8 @@ def get_video(video_id: str):
     raise HTTPException(status_code=404, detail="아직 준비되지 않은 영상이에요.")
 
 
-def _app_version(raw: str | None) -> int:
-    """The X-App-Version header (the app's versionCode, sent since build 6). Builds from before
-    that send nothing, which reads as 0 - i.e. "oldest", the safe assumption."""
-    try:
-        return int(raw or 0)
-    except ValueError:
-        return 0
-
-
 @app.get("/catalog")
-def get_catalog(channel: str | None = None, x_app_version: str | None = Header(None)):
+def get_catalog(channel: str | None = None):
     """Today's CNN/BBC uploads, as collected by admin_sync.py. Each entry's video_id is only
     included once it's actually ready to watch, so tapping a catalog card in the app is always
     an instant "done"."""
@@ -181,8 +164,6 @@ def get_catalog(channel: str | None = None, x_app_version: str | None = Header(N
     items = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     if channel:
         items = [i for i in items if i["channel"].lower() == channel.lower()]
-    if _app_version(x_app_version) < SERIES_MIN_APP_VERSION:
-        items = [i for i in items if not i.get("series")]
 
     return [
         item for item in items

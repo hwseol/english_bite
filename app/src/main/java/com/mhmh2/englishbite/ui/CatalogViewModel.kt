@@ -77,19 +77,14 @@ class CatalogViewModel : ViewModel() {
 
     private fun applyFilterAndSort() {
         var items = allItems
-        val channel = _channelFilter.value
-        // Lecture parts stay out of the mixed news feed (they'd bury it) and appear only under
-        // their own chip, in lecture order rather than by date/popularity.
-        items = if (channel == null) items.filter { it.series == null } else items.filter { it.channel == channel }
-        val isSeriesView = channel != null && items.any { it.series != null }
+        _channelFilter.value?.let { channel -> items = items.filter { it.channel == channel } }
         _categoryFilter.value?.let { category -> items = items.filter { it.category == category } }
         _searchQuery.value.trim().takeIf { it.isNotEmpty() }?.let { query ->
             items = items.filter { it.title.contains(query, ignoreCase = true) }
         }
-        items = when {
-            isSeriesView -> items.sortedBy { it.series_order }
-            _sort.value == CatalogSort.POPULAR -> items.sortedByDescending { it.view_count }
-            else -> items.sortedByDescending { it.timestamp }
+        items = when (_sort.value) {
+            CatalogSort.POPULAR -> items.sortedByDescending { it.view_count }
+            CatalogSort.LATEST -> items.sortedByDescending { it.timestamp }
         }
         _state.value = CatalogState.Loaded(items)
     }

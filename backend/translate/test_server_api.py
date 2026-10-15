@@ -59,23 +59,6 @@ for url in ["https://www.youtube.com/watch", "https://www.youtube.com/shorts/", 
             "https://evil-youtube.com/watch?v=" + VID, "not a url"]:
     check(f"malformed/foreign url -> 400 ({url[:34]})", c.post("/videos", json={"url": url}).status_code == 400)
 
-# --- lecture series: "<youtube id>-pNN" entries, hidden from app builds older than 7
-PART = "WbzNRTTrX0g-p03"
-part_entry = {**entry, "video_id": PART, "channel": "CS50 AI", "series": "cs50-ai", "series_order": 3,
-              "youtube_id": "WbzNRTTrX0g", "start_second": 100.0, "end_second": 700.0}
-part_body = {"result": {"video_id": PART, "youtube_id": "WbzNRTTrX0g", "start_second": 100.0, "end_second": 700.0,
-                         "sentence_count": 0, "sentences": [], "idioms": []}, "catalog_entry": part_entry}
-check("publish series part", c.post("/admin/publish", headers={"X-Admin-Token": "test-admin-token"}, json=part_body).status_code == 200)
-check("series part is served", c.get(f"/videos/{PART}").status_code == 200)
-check("series part via watch url", c.post("/videos", json={"url": f"https://www.youtube.com/watch?v={PART}"}).json().get("status") == "done")
-ids = lambda hdr: sorted(i["video_id"] for i in c.get("/catalog", headers=hdr).json())
-check("old app (no header) does not see series", ids({}) == [VID], str(ids({})))
-check("build 6 does not see series", ids({"X-App-Version": "6"}) == [VID])
-check("garbage header treated as old", ids({"X-App-Version": "abc"}) == [VID])
-check("build 7 sees series", ids({"X-App-Version": "7"}) == sorted([VID, PART]), str(ids({"X-App-Version": "7"})))
-for bad_id in ["WbzNRTTrX0g-p3", "WbzNRTTrX0g-px3", "WbzNRTTrX0g-p003", "WbzNRTTrX0g-p03/x", "../WbzNRTTrX0g-p03"]:
-    check(f"malformed part id rejected ({bad_id})", c.get(f"/videos/{bad_id}").status_code == 404)
-
 # --- accounts
 check("signup", c.post("/auth/signup", json={"email": "a@b.com", "nickname": "n", "password": "password1"}).status_code == 200)
 check("short password rejected", c.post("/auth/signup", json={"email": "c@d.com", "nickname": "n", "password": "short"}).status_code == 400)
