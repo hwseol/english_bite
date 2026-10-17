@@ -89,6 +89,18 @@ def retry_after_seconds(resp: requests.Response, default: float = 60.0) -> float
     return default
 
 
+#: Tokens used so far in this process, per model id - so a run (or reprocess_compare.py) can report
+#: what a video really costs, which is what decides whether a free daily quota is enough.
+usage: dict[str, dict] = {}
+
+
+def _record_usage(model_id: str, prompt_tokens, completion_tokens) -> None:
+    u = usage.setdefault(model_id, {"calls": 0, "prompt": 0, "completion": 0})
+    u["calls"] += 1
+    u["prompt"] += int(prompt_tokens or 0)
+    u["completion"] += int(completion_tokens or 0)
+
+
 def _router_call(router_cfg: dict, model_cfg: dict, prompt: str) -> tuple[str, str]:
     key = read_key(router_cfg["key_file"])
     body = {
@@ -116,9 +128,12 @@ def _router_call(router_cfg: dict, model_cfg: dict, prompt: str) -> tuple[str, s
     if resp.status_code >= 400:
         raise Fatal(f"HTTP {resp.status_code}: {resp.text[:160]}")
     try:
-        text = resp.json()["choices"][0]["message"]["content"] or ""
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"] or ""
     except (ValueError, KeyError, IndexError, TypeError) as e:
         raise Transient("응답 형식이 이상해요") from e
+    usage = data.get("usage") or {}
+    _record_usage(model_cfg["id"], usage.get("prompt_tokens"), usage.get("completion_tokens"))
     return text, resp.headers.get("X-Routed-Via", "")
 
 

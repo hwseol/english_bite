@@ -35,7 +35,7 @@
       "timeout_s": 240
     },
     {
-      "id": "gemini-2.5-flash-lite",
+      "id": "gemini-3.5-flash-lite",
       "via": "google",
       "key_file": "~/.secrets/gemini_paid_api_key.txt",
       "batch_sentences": 30,

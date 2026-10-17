@@ -159,6 +159,7 @@ def main() -> int:
                     continue
             print(f"[{vid}] 새 방식으로 처리 중 ({forced or '기본 순서'})...", flush=True)
             started = time.time()
+            usage_before = copy.deepcopy(llm_client.usage)
             try:
                 new = pipeline._process_from_words(vid, words, cfg)
             except llm_enrich.AllModelsFailed as e:
@@ -168,7 +169,13 @@ def main() -> int:
             seconds = time.time() - started
             (OUT / f"{vid}.{new['llm_model']}.json").write_text(json.dumps(new, ensure_ascii=False, indent=1), encoding="utf-8")
             parts.append(report_for(item, old, new, seconds))
-            print(f"  -> 관용어 {len(new['idioms'])}개 (기존 {len(old.get('idioms') or [])}), {seconds:.0f}초", flush=True)
+            used = {k: llm_client.usage[new['llm_model']][k] - usage_before.get(new['llm_model'], {}).get(k, 0)
+                    for k in ("calls", "prompt", "completion")} if new['llm_model'] in llm_client.usage else {}
+            if used:
+                parts.append(f"- 토큰: 호출 {used['calls']}번, 입력 {used['prompt']:,} + 출력 {used['completion']:,} = **{used['prompt'] + used['completion']:,}** "
+                             f"(문장 {old['sentence_count']}개 기준 {(used['prompt'] + used['completion']) / max(len(old['sentences']), 1):.0f}토큰/문장)\n")
+            print(f"  -> 관용어 {len(new['idioms'])}개 (기존 {len(old.get('idioms') or [])}), {seconds:.0f}초"
+                  + (f", 토큰 {used['prompt'] + used['completion']:,} (호출 {used['calls']}번)" if used else ""), flush=True)
             if args.publish_to:
                 publish(args.publish_to, item, new)
 
