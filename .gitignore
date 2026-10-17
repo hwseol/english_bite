@@ -9,3 +9,6 @@ build/
 captures/
 .externalNativeBuild
 .cxx
+
+# local comparison output of reprocess_compare.py
+backend/translate/compare_out/

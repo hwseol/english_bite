@@ -1,30 +1,23 @@
-"""Pick out idioms/expressions worth explaining per video, using a local Gemma3-4B (via
-Ollama). Wired into pipeline.process_video() so every newly-cached video gets an "idioms"
-field alongside its sentences.
+"""Rules for picking idioms/expressions worth explaining, and the filters that clean up what the
+language model returns.
+
+The model call itself lives in llm_enrich.py (idioms and the Korean subtitles come back from one
+request); this module owns what counts as a good idiom (IDIOM_RULES, shown to the model) and the
+safety nets applied to every finding afterwards (filter_findings). Those filters were written
+against a small local model that often misbehaved - larger models misbehave less, so they should
+rarely fire, but they're cheap and the cost of a bad idiom card (wrong, English-only, or a whole
+sentence) is a confusing screen for a learner, so they stay.
 """
-import json
 import re
-import urllib.request
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-MODEL = "gemma3:4b"
-# Smaller chunks = better per-sentence attention from the model (confirmed earlier: a 15-
-# sentence batch missed things an 8-sentence one caught) - real news speech turns out to have
-# a genuine idiom or specialized term often enough that "be sparse, prefer finding nothing"
-# was actively working against the app's purpose, undershooting real, watchable content by a
-# wide margin (one video dropped from 13 idioms to 2 once that framing was tried). MAX_PER_CHUNK
-# is just a technical safety cap on a malformed/runaway response, not guidance shown to the model.
-CHUNK_SIZE = 12
-MAX_PER_CHUNK = 8
+# Shown to the model as JOB 1. Sentences are referred to by their "S" numbers.
+IDIOM_RULES = """Find idioms, fixed expressions, and political/institutional terms in these consecutive
+news sentences that a Korean adult learning English would specifically need explained.
 
-PROMPT_TEMPLATE = """You are finding idioms, fixed expressions, and political/institutional
-terms in this chunk of consecutive news sentences that a Korean adult learning English would
-specifically need explained.
-
-Go through the sentences one by one and be selective - most sentences in ordinary news speech
-contain nothing worth flagging, so finding nothing in this chunk is a completely normal result,
-not a failure. Only flag a phrase you're confident this learner genuinely could not understand
-from the individual words - not anything merely a bit colorful, formal, or unfamiliar-sounding.
+Go through the S sentences one by one and be selective - most sentences in ordinary news speech
+contain nothing worth flagging, so finding nothing is a completely normal result, not a failure.
+Only flag a phrase you're confident this learner genuinely could not understand from the
+individual words - not anything merely a bit colorful, formal, or unfamiliar-sounding.
 
 Flag ONLY:
 (a) a real idiom or fixed expression whose meaning can't be guessed from the individual words
@@ -39,26 +32,20 @@ generic job title, an ordinary descriptive word or vivid verb ("strangled", "gru
 "terrifying", "gore" are plain English, not idioms), filler words ("you know", "sort of", "I
 mean"), or a whole sentence/clause instead of a specific short phrase.
 
-The "phrase" field must be the SHORT specific expression itself (a few words), never most or
-all of the sentence it came from.
+The "phrase" must be the SHORT specific expression itself (a few words), copied verbatim from
+the sentence - never most or all of the sentence it came from.
 
-Respond ONLY with a JSON array (no other text). Each element:
-{"index": <sentence number>, "phrase": "<the specific idiom/term, copied verbatim from the sentence>", "note_ko": "<explanation IN KOREAN (한국어), 1-2 sentences>", "example": "<one new, natural English sentence using the phrase correctly - NOT copied from the source sentence, a fresh everyday context instead, so the learner sees it used a second way>"}
-
-note_ko must be written entirely in Korean - not English, not a mix. This is for a Korean
+"note_ko" must be written entirely in Korean - not English, not a mix. This is for a Korean
 learner studying English, so an English explanation is useless to them. Just give the concrete
-meaning directly. Do NOT pad the note with vague filler commentary instead of an actual
-meaning - none of these are acceptable substitutes for saying what the phrase means:
+meaning directly, in 1-2 sentences. Do NOT pad the note with vague filler commentary instead of
+an actual meaning - none of these are acceptable substitutes for saying what the phrase means:
 - "한국 학습자는 이해하기 어려울 수 있습니다" (restating why it was picked)
 - "직역하기 어렵고" (saying a literal translation is hard, without giving the real one)
 - "문맥에 따라 의미가 달라집니다" / "특정 상황을 지칭하는 표현입니다" (vague, says nothing)
-Just state what it actually means in this sentence, concretely, in 1-2 sentences.
 
-If nothing in this chunk qualifies, respond with exactly: []
-
-Sentences:
-{sentences_block}
-"""
+"example" must be one new, natural English sentence using the phrase correctly - NOT copied
+from the source sentence, a fresh everyday context instead, so the learner sees it used a
+second way."""
 
 STOPWORDS = {
     "a", "an", "the", "of", "in", "on", "at", "to", "for", "and", "or", "is",
@@ -72,25 +59,6 @@ SELF_CONTRADICTION_MARKERS = (
     "익숙합니다", "익숙할 것", "이미 알고 있", "잘 알려진", "널리 알려진",
     "일반적인 이름", "일반적인 대륙", "일반적인 국가", "일반적인 지명",
 )
-
-
-def call_gemma(prompt: str) -> str:
-    # No format="json" - forcing strict JSON mode makes the model give up and return {}
-    # on some batches. Free-form output plus regex extraction below works better.
-    payload = json.dumps({"model": MODEL, "prompt": prompt, "stream": False}).encode("utf-8")
-    req = urllib.request.Request(OLLAMA_URL, data=payload, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=180) as resp:
-        return json.loads(resp.read().decode("utf-8"))["response"]
-
-
-def _parse_json_array(text: str) -> list:
-    match = re.search(r"\[.*\]", text.strip(), re.DOTALL)
-    if not match:
-        return []
-    try:
-        return json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return []
 
 
 def _significant_words(text: str) -> list:
@@ -153,7 +121,7 @@ def _strip_redundant_commentary(note: str) -> str:
 
 
 def _is_mostly_korean(text: str) -> bool:
-    # Despite the prompt insisting on Korean, Gemma3-4b occasionally answers in English -
+    # Despite the prompt insisting on Korean, a model occasionally answers in English -
     # useless to the Korean learner this note is for, so drop it rather than show it.
     hangul = len(re.findall(r"[가-힣]", text))
     latin = len(re.findall(r"[a-zA-Z]", text))
@@ -163,7 +131,7 @@ def _is_mostly_korean(text: str) -> bool:
 
 
 def _phrase_appears_in_sentence(phrase: str, sentence: str) -> bool:
-    # The model sometimes echoes one of the prompt's example phrases verbatim even when
+    # A model sometimes echoes one of the prompt's example phrases verbatim even when
     # it has nothing to do with the actual sentence. Require most of the phrase's
     # meaningful words to actually occur in the sentence to catch that.
     words = _significant_words(phrase)
@@ -205,39 +173,35 @@ def _is_plausible_phrase(phrase: str, sentence: str) -> bool:
     return len(phrase_words) / sentence_word_count <= 0.65
 
 
-def extract_idioms(sentences: list) -> list:
+def filter_findings(raw_items: list, sentences: list, max_items: int) -> list:
+    """Applies every check to the idioms a model returned for one batch and keeps the good ones.
+
+    raw_items: dicts with "sentence_index" (1-based, into `sentences`), "phrase", "note_ko",
+    "example". sentences: the full list of the video's un-split sentences ({"text": ...})."""
     findings = []
-    for start in range(0, len(sentences), CHUNK_SIZE):
-        chunk = sentences[start:start + CHUNK_SIZE]
-        numbered = "\n".join(f"{start + i + 1}. {s['text']}" for i, s in enumerate(chunk))
-        prompt = PROMPT_TEMPLATE.replace("{sentences_block}", numbered)
-        try:
-            raw = call_gemma(prompt)
-        except Exception:
+    for item in raw_items[:max_items]:
+        if not isinstance(item, dict):
             continue
-
-        for item in _parse_json_array(raw)[:MAX_PER_CHUNK]:
-            idx = item.get("index")
-            if not isinstance(idx, int) or not (1 <= idx <= len(sentences)):
-                continue
-            note = (item.get("note_ko") or "").strip()
-            if not note or any(p in note for p in SELF_CONTRADICTION_MARKERS):
-                continue
-            if not _is_mostly_korean(note):
-                continue
-            note = _strip_redundant_commentary(note)
-            phrase = item.get("phrase") or ""
-            sentence_text = sentences[idx - 1]["text"]
-            if not _phrase_appears_in_sentence(phrase, sentence_text):
-                continue
-            if not _is_plausible_phrase(phrase, sentence_text):
-                continue
-            example = (item.get("example") or "").strip()
-            # A hallucinated/off-topic example is worse than none - only keep it if it
-            # actually seems to use the flagged phrase, same check used above for the
-            # source sentence itself.
-            if not example or not _phrase_appears_in_sentence(phrase, example):
-                example = None
-            findings.append({"sentence_index": idx, "phrase": phrase, "note_ko": note, "example": example})
-
+        idx = item.get("sentence_index")
+        if not isinstance(idx, int) or not (1 <= idx <= len(sentences)):
+            continue
+        note = (item.get("note_ko") or "").strip()
+        if not note or any(p in note for p in SELF_CONTRADICTION_MARKERS):
+            continue
+        if not _is_mostly_korean(note):
+            continue
+        note = _strip_redundant_commentary(note)
+        phrase = item.get("phrase") or ""
+        sentence_text = sentences[idx - 1]["text"]
+        if not _phrase_appears_in_sentence(phrase, sentence_text):
+            continue
+        if not _is_plausible_phrase(phrase, sentence_text):
+            continue
+        example = (item.get("example") or "").strip()
+        # A hallucinated/off-topic example is worse than none - only keep it if it
+        # actually seems to use the flagged phrase, same check used above for the
+        # source sentence itself.
+        if not example or not _phrase_appears_in_sentence(phrase, example):
+            example = None
+        findings.append({"sentence_index": idx, "phrase": phrase, "note_ko": note, "example": example})
     return findings
