@@ -43,6 +43,11 @@ android {
         // something never touches testers' data. Release builds use production and follow
         // docs/app-config.json.
         debug {
+            // A different application id (and name, see src/debug/res/values/strings.xml) so this
+            // build installs NEXT TO the Play/release app instead of replacing it - the two are
+            // signed with different keys, so Android refuses to install one over the other.
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
             buildConfigField("String", "DEFAULT_API_BASE", "\"https://dev.184-193-203-68.sslip.io/\"")
             buildConfigField("boolean", "USE_REMOTE_CONFIG", "false")
         }
