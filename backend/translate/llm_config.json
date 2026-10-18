@@ -1,21 +1,10 @@
 {
-  "_comment": "Idiom extraction + Korean translation go through this list, in order. A video is processed start to finish by ONE model; if that model is blocked, the video restarts from the beginning on the next one. No API keys in this file - only the paths of the files that hold them (outside the repository).",
-
+  "_comment": "Idiom extraction + Korean translation go through this list, in order. A video is processed by ONE model start to finish; if that model is blocked, the video restarts from the beginning on the next one. Order chosen 2026-10-18 from real runs: mistral-large-3 (served by xkiro) answers a batch in ~15 s and writes short outputs; gpt-oss-120b is a reasoning model (~20k output tokens per video) behind Groq's per-minute/day token limits and a slower OVH route; gemma-4-31b-it needs the router's PROVIDER_TIMEOUT_GOOGLE raised; the paid Gemini key needs credits. No API keys in this file - only the paths of the files that hold them (outside the repository).",
   "router": {
     "base_url": "http://127.0.0.1:3001/v1",
     "key_file": "~/.secrets/freellmapi_key.txt"
   },
-
   "models": [
-    {
-      "id": "gpt-oss-120b",
-      "via": "router",
-      "expect_served_by": "gpt-oss-120b",
-      "batch_sentences": 30,
-      "max_tokens": 6500,
-      "min_interval_s": 60,
-      "timeout_s": 180
-    },
     {
       "id": "mistral-large-3",
       "via": "router",
@@ -23,6 +12,15 @@
       "batch_sentences": 30,
       "max_tokens": 6500,
       "min_interval_s": 0,
+      "timeout_s": 180
+    },
+    {
+      "id": "gpt-oss-120b",
+      "via": "router",
+      "expect_served_by": "gpt-oss-120b",
+      "batch_sentences": 30,
+      "max_tokens": 6500,
+      "min_interval_s": 60,
       "timeout_s": 180
     },
     {
@@ -44,9 +42,12 @@
       "timeout_s": 120
     }
   ],
-
   "retries_per_batch": 3,
-  "backoff_seconds": [5, 20, 60],
+  "backoff_seconds": [
+    5,
+    20,
+    60
+  ],
   "max_wait_on_429_s": 600,
   "cooldown_after_exhaustion_s": 900,
   "max_idioms_per_batch": 12
