@@ -41,7 +41,7 @@ import llm_enrich
 import stt
 import words_cache
 from catalog import CHANNELS, MAX_DURATION_SECONDS, RECENT_CHECK_COUNT
-from catalog import classify_category, fetch_recent_video_ids, fetch_video_details
+from catalog import classify_category, fetch_recent_video_ids, fetch_video_details, take_view_counts
 
 SERVER_URL = "https://184-193-203-68.sslip.io"
 TOKEN_PATH = Path.home() / ".secrets" / "englishbite_admin_token.txt"
@@ -83,6 +83,21 @@ def _download_audio(video_id: str) -> Path:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise RuntimeError("오디오 다운로드 결과 파일을 찾을 수 없어요")
     return files[0]
+
+
+def _push_view_counts(token: str, views: dict) -> None:
+    """Keeps the catalog's view counts current (they are only read once, minutes after upload,
+    otherwise). Best effort: a failure here must never stop the sync."""
+    if not views:
+        return
+    try:
+        resp = requests.post(f"{SERVER_URL}/admin/views", headers={"X-Admin-Token": token}, json={"views": views}, timeout=30)
+        if resp.status_code == 200:
+            print(f"  (조회수 {resp.json().get('updated', 0)}개 갱신)", flush=True)
+        else:
+            print(f"  [view counts not updated: HTTP {resp.status_code}]", flush=True)
+    except Exception as e:
+        print(f"  [view counts not updated: {e}]", flush=True)
 
 
 def _ensure_router() -> None:
@@ -134,6 +149,7 @@ def sync() -> None:
             # whole run: the channels after it would go unchecked until the next one.
             print(f"  [FAILED listing] {channel_name}: {e}", flush=True)
             continue
+        _push_view_counts(token, take_view_counts())
         for video_id in video_ids:
             # Cheapest check first: one request to the server, before any yt-dlp call.
             if _already_known(video_id):

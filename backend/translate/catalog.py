@@ -89,10 +89,51 @@ def upsert_catalog_entry(item: dict) -> None:
     CATALOG_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def fetch_recent_video_ids(channel_url: str, count: int) -> list[str]:
+def update_view_counts(views: dict) -> int:
+    """Refresh view_count of videos already in catalog.json (the count is taken when a video is
+    first seen, often minutes after upload, and would otherwise stay at ~0 forever). Unknown ids
+    and non-numeric values are ignored. Returns how many entries changed."""
+    if not CATALOG_PATH.exists():
+        return 0
+    items = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    changed = 0
+    for item in items:
+        new = views.get(item.get("video_id"))
+        if isinstance(new, int) and not isinstance(new, bool) and new >= 0 and new != item.get("view_count"):
+            item["view_count"] = new
+            changed += 1
+    if changed:
+        items.sort(key=lambda v: v["view_count"], reverse=True)
+        tmp = CATALOG_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(CATALOG_PATH)  # readers never see a half-written file
+    return changed
+
+
+def _flat_listing(channel_url: str, count: int) -> list[dict]:
     with YoutubeDL({"extract_flat": "in_playlist", "playlistend": count, "quiet": True, "no_warnings": True}) as ydl:
         info = ydl.extract_info(channel_url, download=False)
-    return [e["id"] for e in info.get("entries", []) if e.get("id")]
+    return [e for e in info.get("entries", []) if e.get("id")]
+
+
+_listing_views: dict = {}
+
+
+def fetch_recent_video_ids(channel_url: str, count: int) -> list[str]:
+    entries = _flat_listing(channel_url, count)
+    # The listing carries every video's current view count (rounded by YouTube to two significant
+    # digits, "10K views" - plenty for what the app shows). Keep them for take_view_counts():
+    # refreshing the counts then costs no extra request.
+    global _listing_views
+    _listing_views = {e["id"]: e["view_count"] for e in entries if isinstance(e.get("view_count"), int)}
+    return [e["id"] for e in entries]
+
+
+def take_view_counts() -> dict:
+    """The view counts seen by the last fetch_recent_video_ids call (and forgets them)."""
+    global _listing_views
+    views, _listing_views = _listing_views, {}
+    return views
 
 
 def fetch_video_details(video_id: str) -> dict:

@@ -70,6 +70,16 @@ check("hidden channel not listed even when asked for by name", c.get("/catalog",
 check("visible channel still listed", VID in listed)
 check("hidden channel's video still opens (bookmarks)", c.get(f"/videos/{ECO}").status_code == 200)
 
+# --- view counts are refreshed by the PC after the first sighting
+TOKEN = {"X-Admin-Token": "test-admin-token"}
+check("views without token -> 403", c.post("/admin/views", json={"views": {VID: 9}}).status_code == 403)
+r = c.post("/admin/views", headers=TOKEN, json={"views": {VID: 12300, "unknownvid1": 5, ECO: -4}})
+check("views update known ids only (negative and unknown ignored)", r.status_code == 200 and r.json() == {"updated": 1}, r.text)
+check("catalog shows the new count", [i["view_count"] for i in c.get("/catalog").json() if i["video_id"] == VID] == [12300])
+check("same counts again change nothing", c.post("/admin/views", headers=TOKEN, json={"views": {VID: 12300}}).json() == {"updated": 0})
+check("non-numeric count -> 422", c.post("/admin/views", headers=TOKEN, json={"views": {VID: "lots"}}).status_code == 422)
+check("catalog.json stays valid JSON after the update", isinstance(json.loads((DATA / "catalog.json").read_text(encoding="utf-8")), list))
+
 # --- accounts
 check("signup", c.post("/auth/signup", json={"email": "a@b.com", "nickname": "n", "password": "password1"}).status_code == 200)
 check("short password rejected", c.post("/auth/signup", json={"email": "c@d.com", "nickname": "n", "password": "short"}).status_code == 400)

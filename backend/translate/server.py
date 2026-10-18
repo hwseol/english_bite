@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import auth_db
-from catalog import upsert_catalog_entry
+from catalog import update_view_counts, upsert_catalog_entry
 
 # Everything the server stores lives under DATA_DIR. Production leaves EB_DATA_DIR unset (data
 # sits next to the code, as it always has); the dev instance points it at its own folder so
@@ -128,6 +128,21 @@ def admin_publish(req: PublishRequest, x_admin_token: str | None = Header(None))
     cache_path(video_id).write_text(json.dumps(req.result, ensure_ascii=False, indent=2), encoding="utf-8")
     upsert_catalog_entry(req.catalog_entry)
     return {"status": "done", "video_id": video_id}
+
+
+class ViewsRequest(BaseModel):
+    views: dict[str, int]
+
+
+@app.post("/admin/views")
+def admin_views(req: ViewsRequest, x_admin_token: str | None = Header(None)):
+    """admin_sync.py sends the current view counts it saw in the channel listings, so the counts
+    in the catalog do not stay at what they were minutes after upload."""
+    if not ADMIN_TOKEN or not hmac.compare_digest((x_admin_token or "").encode(), ADMIN_TOKEN.encode()):
+        raise HTTPException(status_code=403, detail="Invalid admin token")
+    if len(req.views) > 1000:
+        raise HTTPException(status_code=400, detail="too many entries")
+    return {"updated": update_view_counts(req.views)}
 
 
 @app.post("/videos")
