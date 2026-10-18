@@ -9,3 +9,9 @@ build/
 captures/
 .externalNativeBuild
 .cxx
+
+# local comparison output of reprocess_compare.py
+backend/translate/compare_out/
+
+# Whisper transcripts kept for videos waiting on a language model
+backend/translate/words_cache/

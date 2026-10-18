@@ -1,8 +1,9 @@
 """Runs on the local PC (residential IP, not blocked by YouTube's bot detection): scans the same
-channels catalog.py always has, downloads the audio for each new short-enough video, runs the
-whole Whisper/NLLB/Ollama pipeline right here, and publishes only the finished result to the
-server's /admin/publish endpoint. The server no longer runs any models - it just stores and
-serves what this sends, which is what lets it be a tiny, cheap instance.
+channels catalog.py always has, downloads the audio for each new short-enough video, transcribes
+it with Whisper right here, gets the idioms and Korean subtitles from a language model (through
+the local FreeLLMAPI router, see llm_config.json / llm_enrich.py), and publishes only the finished
+result to the server's /admin/publish endpoint. The server no longer runs any models - it just
+stores and serves what this sends, which is what lets it be a tiny, cheap instance.
 
 This replaces catalog.py --preseed as the thing that actually keeps the catalog fresh - catalog.py
 is still useful standalone (e.g. for local dev against a local server), but on this machine the
@@ -34,6 +35,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+import llm_client
+import llm_enrich
+import words_cache
 from catalog import CHANNELS, MAX_DURATION_SECONDS, RECENT_CHECK_COUNT
 from catalog import classify_category, fetch_recent_video_ids, fetch_video_details
 
@@ -79,35 +83,21 @@ def _download_audio(video_id: str) -> Path:
     return files[0]
 
 
-def _ensure_ollama() -> None:
-    """Idiom extraction calls a local Ollama server, and idioms.py quietly skips a chunk it
-    can't get an answer for - so a run started with Ollama down would publish videos with no
-    idioms, permanently (the result gets cached). Make sure it's actually answering first, and
-    stop the whole run rather than publish degraded results if it won't start."""
-    def up() -> bool:
-        try:
-            return requests.get("http://127.0.0.1:11434/api/tags", timeout=3).status_code == 200
-        except requests.RequestException:
-            return False
-
-    if up():
-        return
-    print("Ollama가 꺼져 있어서 시작합니다...", flush=True)
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)
-    for _ in range(30):
-        time.sleep(2)
-        if up():
-            return
-    raise SystemExit("Ollama를 시작하지 못해서 이번 동기화를 중단합니다 (관용구 없는 결과를 저장하지 않기 위해).")
+def _ensure_router() -> None:
+    """Idioms and subtitles come from a language model reached through the local router. If the
+    router is down (or its key file is missing) a run would produce nothing usable, so stop the
+    whole run instead of publishing videos without idioms/translations."""
+    ok, why = llm_client.router_alive(llm_client.load_config())
+    if not ok:
+        raise SystemExit(f"LLM 라우터를 쓸 수 없어서 이번 동기화를 중단합니다 ({why}). 관용어·번역 없는 결과를 올리지 않기 위해서예요.")
 
 
 def _process_and_publish(token: str, item: dict, audio_path: Path) -> None:
-    # Imported here, not at the top: pulling in torch/whisper/transformers takes many seconds
-    # and a few GB of RAM, wasted on the (most common) runs where nothing is new.
+    # Imported here, not at the top: pulling in whisper takes many seconds and a few hundred MB
+    # of RAM, wasted on the (most common) runs where nothing is new.
     from pipeline import process_uploaded_audio
 
-    result = process_uploaded_audio(item["video_id"], audio_path)
+    result = process_uploaded_audio(item["video_id"], audio_path, title=item.get("title"))
     resp = requests.post(
         f"{SERVER_URL}/admin/publish",
         headers={"X-Admin-Token": token},
@@ -117,28 +107,35 @@ def _process_and_publish(token: str, item: dict, audio_path: Path) -> None:
     resp.raise_for_status()
 
 
+# How far back a run looks for videos the server doesn't have yet. It used to be "since local
+# midnight", which dropped everything uploaded between the last run of the day and midnight (and
+# anything missed while the computer was off). 48 hours is generous on purpose: videos the server
+# already has are skipped with one cheap request, so a wide window costs little.
 SCAN_WINDOW_HOURS = 48
+
+# If the language models fail this many videos in a row, something is wrong with all of them
+# (quota used up everywhere, no network): stop the run rather than download audio for nothing.
+MAX_CONSECUTIVE_LLM_FAILURES = 2
 
 
 def sync() -> None:
     token = _load_admin_token()
-    # How far back a run looks for videos the server doesn't have yet. It used to be "since local
-    # midnight", which dropped everything uploaded between the last run of the day and midnight, and
-    # anything missed while the computer was off or a run failed. 48 hours is generous on purpose:
-    # videos the server already has are skipped with one cheap request, before any yt-dlp call.
     cutoff = time.time() - SCAN_WINDOW_HOURS * 3600
-    ollama_checked = False
+    words_cache.prune()
+    router_checked = False
+    llm_failures = 0
 
     for channel_name, url in CHANNELS.items():
         print(f"[{channel_name}] checking latest {RECENT_CHECK_COUNT} uploads...", flush=True)
         try:
             video_ids = fetch_recent_video_ids(url, RECENT_CHECK_COUNT)
         except Exception as e:
-            # One channel's listing failing (YouTube hiccup, "Failed to resolve url") must not end
-            # the whole run: the channels after it would go unchecked until the next one.
+            # One channel's listing failing (YouTube hiccup, "Failed to resolve url") must not end the
+            # whole run: the channels after it would go unchecked until the next one.
             print(f"  [FAILED listing] {channel_name}: {e}", flush=True)
             continue
         for video_id in video_ids:
+            # Cheapest check first: one request to the server, before any yt-dlp call.
             if _already_known(video_id):
                 print(f"  [skip] {video_id} already on server")
                 continue
@@ -159,11 +156,16 @@ def sync() -> None:
                 continue
 
             print(f"  [processing] {video_id}: {info.get('title')}", flush=True)
-            try:
-                audio_path = _download_audio(video_id)
-            except Exception as e:
-                print(f"  [FAILED download] {video_id}: {e}")
-                continue
+            audio_path = None
+            if words_cache.load(video_id) is not None:
+                # Deferred earlier because no model could finish it: the transcript is still on disk.
+                print("    (받아쓰기 결과가 남아 있어서 다운로드와 Whisper를 건너뜁니다)", flush=True)
+            else:
+                try:
+                    audio_path = _download_audio(video_id)
+                except Exception as e:
+                    print(f"  [FAILED download] {video_id}: {e}")
+                    continue
 
             thumbnails = info.get("thumbnails") or []
             title = info.get("title") or ""
@@ -179,15 +181,26 @@ def sync() -> None:
                 "category": classify_category(title),
             }
             try:
-                if not ollama_checked:
-                    _ensure_ollama()
-                    ollama_checked = True
+                if not router_checked:
+                    _ensure_router()
+                    router_checked = True
                 _process_and_publish(token, item, audio_path)
                 print(f"  [published] {video_id}")
+                llm_failures = 0
+            except llm_enrich.AllModelsFailed as e:
+                # Not published, not retried here: the server still doesn't have it, so the next
+                # run (3 hours later) starts it over from the beginning.
+                llm_failures += 1
+                print(f"  [DEFERRED - 모델 실패] {video_id}: {e}")
+                if llm_failures >= MAX_CONSECUTIVE_LLM_FAILURES:
+                    if audio_path:
+                        shutil.rmtree(audio_path.parent, ignore_errors=True)
+                    raise SystemExit(f"연속 {llm_failures}개 영상에서 모든 모델이 실패해서 이번 동기화를 중단합니다.")
             except Exception as e:
                 print(f"  [FAILED process/publish] {video_id}: {e}")
             finally:
-                shutil.rmtree(audio_path.parent, ignore_errors=True)
+                if audio_path:
+                    shutil.rmtree(audio_path.parent, ignore_errors=True)
 
 
 if __name__ == "__main__":

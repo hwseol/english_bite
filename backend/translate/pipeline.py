@@ -7,18 +7,15 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 import pysbd
-import torch
 import yt_dlp
 from faster_whisper import WhisperModel
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-from idioms import extract_idioms, _phrase_appears_in_sentence
+import llm_enrich
+import words_cache
+from idioms import _phrase_appears_in_sentence
 
-TRANSLATE_MODEL_NAME = "NHNDQ/nllb-finetuned-en2ko"
 WHISPER_MODEL_NAME = "small"
 
-_tokenizer = None
-_model = None
 _whisper = None
 
 
@@ -218,74 +215,28 @@ def _split_long_sentence(sentence: dict) -> list[dict]:
     return [p for half in pieces for p in _split_long_sentence(half)]
 
 
-def load_translator():
-    global _tokenizer, _model
-    if _model is None:
-        _tokenizer = AutoTokenizer.from_pretrained(TRANSLATE_MODEL_NAME)
-        # bfloat16 halves the resident memory (~1.4GB vs ~2.9GB in float32) with
-        # no meaningful quality loss, which matters when this runs alongside
-        # Android Studio/the emulator on the same machine.
-        _model = AutoModelForSeq2SeqLM.from_pretrained(TRANSLATE_MODEL_NAME, torch_dtype=torch.bfloat16)
-        _tokenizer.src_lang = "eng_Latn"
-    return _tokenizer, _model
-
-
-def translate_to_ko(text: str) -> str:
-    return translate_batch([text])[0]
-
-
-def translate_batch(texts: list[str], batch_size: int = 16) -> list[str]:
-    """Batching multiple sentences per generate() call only pays off if sentences
-    of similar length are grouped together - otherwise every sequence in a batch
-    gets padded up to the longest one and most of that compute is wasted on
-    padding. Sort by length into batches, translate, then restore original order."""
-    tokenizer, model = load_translator()
-    order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
-    results = [None] * len(texts)
-
-    for i in range(0, len(order), batch_size):
-        batch_indices = order[i:i + batch_size]
-        chunk = [texts[j] for j in batch_indices]
-        inputs = tokenizer(chunk, return_tensors="pt", padding=True, truncation=True, max_length=200)
-        with torch.no_grad():
-            tokens = model.generate(
-                **inputs,
-                forced_bos_token_id=tokenizer.convert_tokens_to_ids("kor_Hang"),
-                max_length=200,
-                # Greedy decoding on a short, filler-heavy ASR sentence ("uh, uh, uh...")
-                # occasionally loops, repeating the same token/phrase until max_length cuts
-                # it off (spotted as a Korean subtitle of "이 순간" repeated ~20 times).
-                # no_repeat_ngram_size forbids repeating any 3-word span at all.
-                no_repeat_ngram_size=3,
-                repetition_penalty=1.3,
-            )
-        for j, decoded in zip(batch_indices, tokenizer.batch_decode(tokens, skip_special_tokens=True)):
-            results[j] = decoded
-
-    return results
-
-
-def _process_from_words(video_id: str, words: list[dict]) -> dict:
+def _process_from_words(video_id: str, words: list[dict], llm_config: dict | None = None, title: str | None = None) -> dict:
     sentences = words_to_sentences(words)
-
-    # Idiom extraction runs on the full, un-split sentences - a chunk of complete sentences
-    # gives the model real context to judge from, whereas a chunk of screen-sized fragments
-    # (some just a few words) reads more like a word-association test and picks weaker phrases.
-    idioms_raw = extract_idioms(sentences)
-
     display_sentences, index_map = split_sentences_for_display(sentences)
 
-    translations = translate_batch([s["text"] for s in display_sentences])
-    for sentence, ko in zip(display_sentences, translations):
+    # Idioms are judged on the full, un-split sentences (a chunk of complete sentences gives the
+    # model real context, where screen-sized fragments read like a word-association test) while
+    # the Korean subtitles are written for the screen-sized pieces. One request per batch returns
+    # both; see llm_enrich.py. Raises llm_enrich.AllModelsFailed if no model could do the whole
+    # video - the caller must then not publish it.
+    enriched = llm_enrich.enrich(sentences, display_sentences, index_map, llm_config, title=title)
+    for sentence, ko in zip(display_sentences, enriched.translations):
         sentence["ko"] = ko
 
-    idioms = _remap_idiom_indices(idioms_raw, display_sentences, index_map)
+    idioms = _remap_idiom_indices(enriched.idioms, display_sentences, index_map)
 
     return {
         "video_id": video_id,
         "sentence_count": len(display_sentences),
         "sentences": display_sentences,
         "idioms": idioms,
+        # Which model wrote this video's idioms and subtitles (additive; the app ignores it).
+        "llm_model": enriched.model,
     }
 
 
@@ -300,11 +251,19 @@ def process_video(url: str):
     return _process_from_words(video_id, words)
 
 
-def process_uploaded_audio(video_id: str, audio_path: Path) -> dict:
-    """Same pipeline as process_video, but starting from an audio file that's already on disk -
-    for the admin-upload flow where the Android app extracted and uploaded the audio itself."""
-    words = _transcribe_audio(audio_path)
-    return _process_from_words(video_id, words)
+def process_uploaded_audio(video_id: str, audio_path: Path | None, title: str | None = None) -> dict:
+    """Same pipeline as process_video, but starting from an audio file that's already on disk (the
+    PC's sync downloads it first). The Whisper transcript is kept in words_cache while the language
+    models work: if none of them can finish the video, llm_enrich.AllModelsFailed propagates, the
+    transcript stays, and the retry on the next run skips the download and transcription
+    (audio_path may then be None). It is deleted only once the video has been processed."""
+    words = words_cache.load(video_id)
+    if words is None:
+        words = _transcribe_audio(audio_path)
+        words_cache.save(video_id, words)
+    result = _process_from_words(video_id, words, title=title)
+    words_cache.delete(video_id)
+    return result
 
 
 if __name__ == "__main__":
