@@ -31,8 +31,9 @@ CHANNELS = {
 
 MAX_DURATION_SECONDS = 20 * 60  # longer videos are skipped rather than downloaded and cut,
                                   # consistent with never storing/re-encoding video ourselves
-RECENT_CHECK_COUNT = 40  # how many of each channel's newest uploads to inspect per run -
-                          # CNN/BBC post many times a day, 15 was missing same-day videos
+RECENT_CHECK_COUNT = 80  # how many of each channel's newest uploads to inspect per run -
+                          # CNN/BBC post many times a day, 15 was missing same-day videos. 80 so the
+                          # 48h scan window in admin_sync.py is covered after a run or two failed
 WINDOW_SECONDS = 24 * 60 * 60  # a rolling 24h window by absolute timestamp, not a calendar-date
                                  # string match - upload_date's timezone vs. the server's local
                                  # date was silently dropping videos right at the day boundary

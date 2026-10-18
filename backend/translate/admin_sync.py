@@ -117,21 +117,32 @@ def _process_and_publish(token: str, item: dict, audio_path: Path) -> None:
     resp.raise_for_status()
 
 
+SCAN_WINDOW_HOURS = 48
+
+
 def sync() -> None:
     token = _load_admin_token()
-    # The server can only process about one video every ~15-20 minutes on its current CPU-only
-    # instance (Whisper + NLLB + Ollama, all CPU-bound, one at a time - see
-    # _job_queue in server.py) - catalog.py's rolling 24h window was piling up 30+ videos per
-    # run, which the server then took most of a day to work through. Scoping this to just
-    # today (local midnight) keeps each run's batch small enough to actually catch up.
-    midnight = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    cutoff = midnight.timestamp()
+    # How far back a run looks for videos the server doesn't have yet. It used to be "since local
+    # midnight", which dropped everything uploaded between the last run of the day and midnight, and
+    # anything missed while the computer was off or a run failed. 48 hours is generous on purpose:
+    # videos the server already has are skipped with one cheap request, before any yt-dlp call.
+    cutoff = time.time() - SCAN_WINDOW_HOURS * 3600
     ollama_checked = False
 
     for channel_name, url in CHANNELS.items():
         print(f"[{channel_name}] checking latest {RECENT_CHECK_COUNT} uploads...", flush=True)
-        video_ids = fetch_recent_video_ids(url, RECENT_CHECK_COUNT)
+        try:
+            video_ids = fetch_recent_video_ids(url, RECENT_CHECK_COUNT)
+        except Exception as e:
+            # One channel's listing failing (YouTube hiccup, "Failed to resolve url") must not end
+            # the whole run: the channels after it would go unchecked until the next one.
+            print(f"  [FAILED listing] {channel_name}: {e}", flush=True)
+            continue
         for video_id in video_ids:
+            if _already_known(video_id):
+                print(f"  [skip] {video_id} already on server")
+                continue
+
             try:
                 info = fetch_video_details(video_id)
             except Exception as e:
@@ -140,15 +151,11 @@ def sync() -> None:
 
             timestamp = info.get("timestamp") or 0
             if timestamp < cutoff:
-                print("  ...older than 24h, stopping this channel")
+                print(f"  ...older than {SCAN_WINDOW_HOURS}h, stopping this channel")
                 break
             duration = info.get("duration") or 0
             if duration > MAX_DURATION_SECONDS:
                 print(f"  [skip] {video_id} too long ({duration}s): {info.get('title')}")
-                continue
-
-            if _already_known(video_id):
-                print(f"  [skip] {video_id} already on server: {info.get('title')}")
                 continue
 
             print(f"  [processing] {video_id}: {info.get('title')}", flush=True)
