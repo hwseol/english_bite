@@ -50,8 +50,14 @@ Server settings (systemd drop-in `mail.conf`, root-only, per service):
 `EB_SMTP_HOST/PORT/USER/PASSWORD/FROM` and `EB_GOOGLE_CLIENT_ID`. Set both with
 `backend\deploy\set_mail.ps1 -Key <key.pem> -Server <user@host>` (reuses Bujirun's Gmail account inside the
 server; `-Manual` to type another). `EB_MAIL_DEBUG_LOG=<file>` (dev only) appends the mails to a file
-instead of sending them. Order of a release: push -> `deploy.sh dev` -> `set_mail.ps1` -> try it in the dev
-app -> `deploy.sh prod` (the sign-up screen of an app older than versionCode 8 is told to update).
+instead of sending them. (The sign-up screen of an app older than versionCode 8 is told to update.)
+
+**One server only (decided 2026-10-18):** the dev instance (`englishbite-api-dev`, port 8001) is stopped and
+disabled; its code (`~/english_bite_dev`) and data (`~/english_bite_dev_data`) are left on the box, unused.
+Everything goes straight to production, so back up first: `sudo systemctl start englishbite-backup`, then
+`bash ~/english_bite/backend/deploy/deploy.sh prod`. Release checklist: build the release APK + AAB, run
+`tools\verify_release.ps1` (it refuses dev builds, wrong server address/signature/version, unpushed code and a
+server that lacks what the app offers), and only then upload.
 
 Google Cloud Console (the same project as the web client ID in `app/build.gradle.kts`): create an
 **Android** OAuth client for package `com.mhmh2.englishbite` once per signing key SHA-1 - the upload key

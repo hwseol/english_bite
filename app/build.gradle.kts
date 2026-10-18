@@ -46,17 +46,17 @@ android {
     }
 
     buildTypes {
-        // Debug builds talk to the dev server (same machine as production, separate data and
-        // code - see backend/deploy/README.md) and ignore the remote config file, so trying
-        // something never touches testers' data. Release builds use production and follow
-        // docs/app-config.json.
+        // There is ONE server now (production); the dev instance was retired on 2026-10-18. Debug
+        // builds exist only for the developer's own emulator, talk to production like release does,
+        // and are never handed to anyone: what goes to testers is the release build
+        // (tools/verify_release.ps1 checks it). Release follows docs/app-config.json.
         debug {
             // A different application id (and name, see src/debug/res/values/strings.xml) so this
             // build installs NEXT TO the Play/release app instead of replacing it - the two are
             // signed with different keys, so Android refuses to install one over the other.
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            buildConfigField("String", "DEFAULT_API_BASE", "\"https://dev.184-193-203-68.sslip.io/\"")
+            buildConfigField("String", "DEFAULT_API_BASE", "\"https://184-193-203-68.sslip.io/\"")
             buildConfigField("boolean", "USE_REMOTE_CONFIG", "false")
         }
         release {

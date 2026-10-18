@@ -1,5 +1,5 @@
-# Turns on sign-up verification mails + Google sign-in for BOTH EnglishBite services (production and
-# dev) on the server, then restarts them. Run it yourself, after deploy.sh has put the new code there.
+# Turns on sign-up verification mails + Google sign-in for the EnglishBite services on the server
+# (production; the retired dev service is configured too, harmlessly), then restarts them.
 #
 #   powershell -ExecutionPolicy Bypass -File backend\deploy\set_mail.ps1 -Key <key.pem> -Server <user@host>
 #
@@ -62,7 +62,12 @@ sleep 3
 echo -n 'prod: '; curl -fsS http://127.0.0.1:8000/auth/config; echo
 echo -n 'dev:  '; curl -fsS http://127.0.0.1:8001/auth/config; echo
 "@
-($script -replace "`r", "") | ssh -i $Key $Server "bash -s"
+# Through a BOM-free, LF-only temp file: piping from PowerShell 5.1 prepends a BOM and adds CRs, which
+# bash then reads as part of the first and last commands.
+$tmp = Join-Path $env:TEMP "eb_set_mail.sh"
+[IO.File]::WriteAllText($tmp, ($script -replace "`r", ""), (New-Object Text.UTF8Encoding $false))
+cmd /c "ssh -i `"$Key`" $Server bash -s < `"$tmp`""
+[IO.File]::Delete($tmp)
 $password = $null
 Write-Host ""
 Write-Host 'Done if both lines say {"email_code":true,"google":true}. Then try sign-up in the dev app with your own email.'
