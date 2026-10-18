@@ -48,6 +48,7 @@ class SignupRequest(BaseModel):
     email: str
     nickname: str
     password: str
+    code: str = ""  # the email verification code (required; see /auth/signup)
 
 
 class LoginRequest(BaseModel):
@@ -193,14 +194,92 @@ def get_catalog(channel: str | None = None):
     ]
 
 
-@app.post("/auth/signup")
-def signup(req: SignupRequest):
+class EmailCodeRequest(BaseModel):
+    email: str
+    purpose: str  # "signup" or "reset"
+
+
+class GoogleRequest(BaseModel):
+    id_token: str
+
+
+class ResetConfirmRequest(BaseModel):
+    email: str
+    code: str
+    password: str
+
+
+class DeleteMeRequest(BaseModel):
+    password: str | None = None
+
+
+def _session_response(user) -> dict:
+    return {"token": auth_db.create_session(user["id"]), **auth_db.user_public(user)}
+
+
+@app.get("/auth/config")
+def auth_config():
+    """What this server can do right now, so the app only offers what works."""
+    return {"email_code": auth_db.can_email(), "google": bool(auth_db.GOOGLE_CLIENT_ID)}
+
+
+@app.post("/auth/email/send")
+def send_email_code(req: EmailCodeRequest):
+    """Emails a 6-digit code: to prove an address before sign-up, or to reset a password."""
     try:
-        user = auth_db.create_user(req.email, req.nickname, req.password)
+        auth_db.send_code(req.email, req.purpose)
     except auth_db.AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    token = auth_db.create_session(user["id"])
-    return {"token": token, **auth_db.user_public(user)}
+    return {"status": "sent"}
+
+
+@app.post("/auth/signup")
+def signup(req: SignupRequest):
+    """New accounts must prove their email with the code from /auth/email/send. (Older app versions
+    that never send a code are told to update.)"""
+    try:
+        if not req.code:
+            raise auth_db.AuthError("이메일 인증이 필요해요. 앱을 최신 버전으로 업데이트해 주세요.")
+        auth_db.check_code(req.email, "signup", req.code, consume=False)
+        user = auth_db.create_user(req.email, req.nickname, req.password, verified=True)
+        auth_db.consume_code(req.email, "signup")
+    except auth_db.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _session_response(user)
+
+
+@app.post("/auth/google")
+def google_login(req: GoogleRequest):
+    """Sign in (or up) with a Google ID token from the phone."""
+    try:
+        user = auth_db.google_user(auth_db.verify_google_token(req.id_token))
+    except auth_db.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _session_response(user)
+
+
+@app.post("/auth/reset/confirm")
+def reset_confirm(req: ResetConfirmRequest):
+    """New password with the emailed code; signs in on this phone."""
+    try:
+        user = auth_db.confirm_reset(req.email, req.code, req.password)
+    except auth_db.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _session_response(user)
+
+
+@app.post("/auth/delete-me")
+def delete_me(req: DeleteMeRequest, authorization: str | None = Header(None)):
+    """Delete the signed-in account (the in-app button): needs its password, unless it is a Google
+    account without one."""
+    user = auth_db.get_user_by_token(authorization) if authorization else None
+    if user is None:
+        raise HTTPException(status_code=401, detail="로그인이 필요해요.")
+    try:
+        auth_db.delete_by_session(user, req.password)
+    except auth_db.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "deleted"}
 
 
 @app.post("/auth/login")

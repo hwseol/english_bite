@@ -48,11 +48,20 @@ data class VideoResult(
 
 data class IngestRequest(val url: String)
 
-data class SignupRequest(val email: String, val nickname: String, val password: String)
+data class SignupRequest(val email: String, val nickname: String, val password: String, val code: String)
 data class LoginRequest(val email: String, val password: String)
 data class CrashReport(val app_version: Int, val device: String, val android: String, val trace: String)
 data class ChangePasswordRequest(val email: String, val old_password: String, val new_password: String)
-data class AuthResponse(val token: String, val email: String, val nickname: String)
+
+/** purpose: "signup" (prove the address before creating the account) or "reset" (forgotten password). */
+data class EmailCodeRequest(val email: String, val purpose: String)
+data class ResetConfirmRequest(val email: String, val code: String, val password: String)
+data class GoogleLoginRequest(val id_token: String)
+data class DeleteMeRequest(val password: String?)
+data class AuthConfig(val email_code: Boolean = false, val google: Boolean = false)
+
+// has_password is null when the server is older than the field: treated as "has one".
+data class AuthResponse(val token: String, val email: String, val nickname: String, val has_password: Boolean? = null)
 data class UserProfile(val email: String, val nickname: String)
 
 data class CatalogItem(

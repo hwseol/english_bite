@@ -38,3 +38,23 @@ cd ~/english_bite/backend/translate
 EB_DATA_DIR=~/english_bite_dev_data .venv/bin/python view_crashes.py       # same, for dev
 .venv/bin/python reset_password.py someone@example.com                    # forgotten password
 ```
+
+## Sign-up verification mails and Google sign-in
+
+New accounts must prove their email: the app asks `POST /auth/email/send` for a 6-digit code (valid 15 min,
+5 tries, one per minute per address, 200 mails/day for the whole server) and sends it with the sign-up
+(`code`). Password reset uses the same codes (`/auth/reset/confirm`). Google sign-in is `POST /auth/google`
+(the phone's ID token, checked with Google's tokeninfo). `GET /auth/config` tells the app what is switched on.
+
+Server settings (systemd drop-in `mail.conf`, root-only, per service):
+`EB_SMTP_HOST/PORT/USER/PASSWORD/FROM` and `EB_GOOGLE_CLIENT_ID`. Set both with
+`backend\deploy\set_mail.ps1 -Key <key.pem> -Server <user@host>` (reuses Bujirun's Gmail account inside the
+server; `-Manual` to type another). `EB_MAIL_DEBUG_LOG=<file>` (dev only) appends the mails to a file
+instead of sending them. Order of a release: push -> `deploy.sh dev` -> `set_mail.ps1` -> try it in the dev
+app -> `deploy.sh prod` (the sign-up screen of an app older than versionCode 8 is told to update).
+
+Google Cloud Console (the same project as the web client ID in `app/build.gradle.kts`): create an
+**Android** OAuth client for package `com.mhmh2.englishbite` once per signing key SHA-1 - the upload key
+(`keytool -list -v` on the release keystore), the debug key, and the **Play app signing key** (Play Console
+-> Release -> Setup -> App signing). Without a matching client Google answers "[28444] Developer console is
+not set up correctly" and the button reports it.

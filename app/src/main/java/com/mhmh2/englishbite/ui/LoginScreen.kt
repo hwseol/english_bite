@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,14 +42,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mhmh2.englishbite.BuildConfig
+import kotlinx.coroutines.delay
 
 /** Reached only from the catalog's account icon - never shown automatically, since every
- * feature in the app already works without an account. Google Sign-In isn't wired up yet (it
- * needs an OAuth client ID set up in Google Cloud Console first); this is email/password +
- * nickname only for now. */
+ * feature in the app already works without an account. Sign-up needs a code mailed to the address
+ * (email verification); "구글로 계속하기" skips that, Google having verified the address. */
 @Composable
 fun LoginScreen(
     onBack: () -> Unit,
@@ -208,17 +210,22 @@ private fun LoggedInView(
             title = { Text("회원 탈퇴") },
             text = {
                 Column {
-                    Text("계정이 영구적으로 삭제되며 되돌릴 수 없어요. 계속하려면 비밀번호를 입력해주세요.")
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = deletePassword,
-                        onValueChange = { deletePassword = it },
-                        label = { Text("비밀번호") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth()
+                    Text(
+                        if (uiState.hasPassword) "계정이 영구적으로 삭제되며 되돌릴 수 없어요. 계속하려면 비밀번호를 입력해주세요."
+                        else "계정이 영구적으로 삭제되며 되돌릴 수 없어요. 구글 계정으로 가입해서 비밀번호는 필요 없어요."
                     )
+                    if (uiState.hasPassword) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = deletePassword,
+                            onValueChange = { deletePassword = it },
+                            label = { Text("비밀번호") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                     uiState.error?.let {
                         Spacer(Modifier.height(8.dp))
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -228,7 +235,7 @@ private fun LoggedInView(
             confirmButton = {
                 TextButton(
                     onClick = { onDelete(deletePassword) },
-                    enabled = !uiState.isLoading && deletePassword.isNotBlank()
+                    enabled = !uiState.isLoading && (!uiState.hasPassword || deletePassword.isNotBlank())
                 ) {
                     Text("탈퇴", color = MaterialTheme.colorScheme.error)
                 }
@@ -258,10 +265,12 @@ private fun LoggedInView(
         Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
     }
     Spacer(Modifier.height(24.dp))
-    OutlinedButton(onClick = { showChangeDialog = true }, modifier = Modifier.fillMaxWidth()) {
-        Text("비밀번호 변경")
+    if (uiState.hasPassword) {
+        OutlinedButton(onClick = { showChangeDialog = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("비밀번호 변경")
+        }
+        Spacer(Modifier.height(8.dp))
     }
-    Spacer(Modifier.height(8.dp))
     OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
         Text("로그아웃")
     }
@@ -271,26 +280,60 @@ private fun LoggedInView(
     }
 }
 
+private enum class AuthMode { LOGIN, SIGNUP, RESET }
+
+private val EMAIL_SHAPE = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]{2,}$")
+
 @Composable
 private fun AuthForm(viewModel: AuthViewModel, uiState: AuthUiState) {
-    var isSignupMode by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf(AuthMode.LOGIN) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordConfirm by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    val context = LocalContext.current
 
-    val passwordsMatch = !isSignupMode || password == passwordConfirm
-    val canSubmit = !uiState.isLoading && email.isNotBlank() && password.isNotBlank() &&
-        (!isSignupMode || (nickname.isNotBlank() && passwordConfirm.isNotBlank() && passwordsMatch))
+    val emailLooksValid = EMAIL_SHAPE.matches(email.trim())
+    // Sign-up and reset are two steps: first a code is mailed to the address, then the rest of the
+    // form appears. Editing the address afterwards sends the person back to step one.
+    val codeStep = mode != AuthMode.LOGIN && uiState.codeSentTo == email.trim().lowercase()
+    val passwordsMatch = password == passwordConfirm
+
+    // Ticks once a second while a code is pending, only to count down "다시 받기".
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(codeStep) {
+        while (codeStep) {
+            now = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    val resendInSeconds = ((uiState.resendAtMillis - now + 999) / 1000).coerceAtLeast(0)
+
+    fun switchTo(next: AuthMode) {
+        mode = next
+        password = ""
+        passwordConfirm = ""
+        code = ""
+        viewModel.resetCodeStep()
+    }
 
     Text(
-        text = if (isSignupMode) "회원가입" else "로그인",
+        text = when (mode) {
+            AuthMode.LOGIN -> "로그인"
+            AuthMode.SIGNUP -> "회원가입"
+            AuthMode.RESET -> "비밀번호 재설정"
+        },
         style = MaterialTheme.typography.headlineLarge
     )
     Spacer(Modifier.height(8.dp))
     Text(
-        text = "로그인하지 않아도 모든 기능을 그대로 쓸 수 있어요. 계정을 만들어 두면 " +
-            "앞으로 추가될 기기 간 단어장 동기화를 바로 쓸 수 있어요.",
+        text = when (mode) {
+            AuthMode.LOGIN -> "로그인하지 않아도 모든 기능을 그대로 쓸 수 있어요. 계정을 만들어 두면 " +
+                "앞으로 추가될 기기 간 단어장 동기화를 바로 쓸 수 있어요."
+            AuthMode.SIGNUP -> "이메일 인증이 필요해요. 인증번호를 받아 입력하면 가입이 완료돼요."
+            AuthMode.RESET -> "가입한 이메일로 인증번호를 보내 드려요."
+        },
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
@@ -306,26 +349,46 @@ private fun AuthForm(viewModel: AuthViewModel, uiState: AuthUiState) {
         modifier = Modifier.fillMaxWidth()
     )
     Spacer(Modifier.height(12.dp))
-    if (isSignupMode) {
+
+    if (mode == AuthMode.LOGIN) {
         OutlinedTextField(
-            value = nickname,
-            onValueChange = { nickname = it },
-            label = { Text("닉네임") },
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("비밀번호") },
             singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth()
+        )
+    } else if (codeStep) {
+        OutlinedTextField(
+            value = code,
+            onValueChange = { code = it.filter(Char::isDigit).take(6) },
+            label = { Text("인증번호 6자리") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(12.dp))
-    }
-    OutlinedTextField(
-        value = password,
-        onValueChange = { password = it },
-        label = { Text("비밀번호") },
-        singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        modifier = Modifier.fillMaxWidth()
-    )
-    if (isSignupMode) {
+        if (mode == AuthMode.SIGNUP) {
+            OutlinedTextField(
+                value = nickname,
+                onValueChange = { nickname = it },
+                label = { Text("닉네임") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text(if (mode == AuthMode.SIGNUP) "비밀번호 (8자 이상)" else "새 비밀번호 (8자 이상)") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = passwordConfirm,
@@ -347,23 +410,43 @@ private fun AuthForm(viewModel: AuthViewModel, uiState: AuthUiState) {
         }
     }
 
-    uiState.error?.let { error ->
+    if (mode != AuthMode.LOGIN && !uiState.emailCodeAvailable) {
         Spacer(Modifier.height(12.dp))
         Text(
-            text = error,
+            text = "지금은 이메일 인증을 할 수 없어요. 잠시 후 다시 시도해 주세요.",
             color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall
         )
     }
+    uiState.notice?.let {
+        Spacer(Modifier.height(12.dp))
+        Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+    }
+    uiState.error?.let { error ->
+        Spacer(Modifier.height(12.dp))
+        Text(text = error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+    }
 
     Spacer(Modifier.height(24.dp))
 
+    val canSubmit = !uiState.isLoading && when (mode) {
+        AuthMode.LOGIN -> email.isNotBlank() && password.isNotBlank()
+        AuthMode.SIGNUP -> codeStep && code.length == 6 && nickname.isNotBlank() &&
+            password.length >= 8 && passwordsMatch
+        AuthMode.RESET -> codeStep && code.length == 6 && password.length >= 8 && passwordsMatch
+    }
+    val canAskForCode = !uiState.isLoading && emailLooksValid && uiState.emailCodeAvailable
+
     Button(
         onClick = {
-            if (isSignupMode) viewModel.signup(email, nickname, password)
-            else viewModel.login(email, password)
+            when {
+                mode == AuthMode.LOGIN -> viewModel.login(email, password)
+                !codeStep -> viewModel.sendCode(email, if (mode == AuthMode.SIGNUP) "signup" else "reset")
+                mode == AuthMode.SIGNUP -> viewModel.signup(email, nickname, password, code)
+                else -> viewModel.resetPassword(email, code, password)
+            }
         },
-        enabled = canSubmit,
+        enabled = if (mode != AuthMode.LOGIN && !codeStep) canAskForCode else canSubmit,
         modifier = Modifier.fillMaxWidth().height(48.dp)
     ) {
         if (uiState.isLoading) {
@@ -372,44 +455,66 @@ private fun AuthForm(viewModel: AuthViewModel, uiState: AuthUiState) {
                 color = MaterialTheme.colorScheme.onPrimary
             )
         } else {
-            Text(if (isSignupMode) "회원가입" else "로그인")
+            Text(
+                when {
+                    mode == AuthMode.LOGIN -> "로그인"
+                    !codeStep -> "인증번호 받기"
+                    mode == AuthMode.SIGNUP -> "가입하기"
+                    else -> "비밀번호 설정하고 로그인"
+                }
+            )
+        }
+    }
+
+    if (codeStep) {
+        Spacer(Modifier.height(4.dp))
+        TextButton(
+            onClick = { viewModel.sendCode(email, if (mode == AuthMode.SIGNUP) "signup" else "reset") },
+            enabled = !uiState.isLoading && resendInSeconds == 0L,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (resendInSeconds > 0) "인증번호 다시 받기 (${resendInSeconds}초)" else "인증번호 다시 받기")
+        }
+    }
+
+    // Google: one tap, no password or code (Google has already verified the address).
+    if (mode != AuthMode.RESET && uiState.googleAvailable) {
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "또는",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = { viewModel.googleSignIn(context) },
+            enabled = !uiState.isLoading,
+            modifier = Modifier.fillMaxWidth().height(48.dp)
+        ) {
+            Text("구글로 계속하기")
         }
     }
 
     Spacer(Modifier.height(12.dp))
 
-    if (!isSignupMode) {
-        val context = LocalContext.current
-        TextButton(
-            onClick = {
-                // No mail service behind the server, so recovery goes through the developer:
-                // this opens the user's mail app with the request already addressed.
-                val intent = Intent(Intent.ACTION_SENDTO).apply {
-                    data = Uri.parse("mailto:")
-                    putExtra(Intent.EXTRA_EMAIL, arrayOf("mhmh2090@gmail.com"))
-                    putExtra(Intent.EXTRA_SUBJECT, "[EnglishBite] 비밀번호 재설정 요청")
-                    putExtra(
-                        Intent.EXTRA_TEXT,
-                        "가입한 이메일 주소: ${email.trim()}\n\n비밀번호를 잊어버려서 재설정을 요청합니다. " +
-                            "(이 메일을 보내신 주소가 가입한 이메일과 같아야 처리돼요.)"
-                    )
-                }
-                runCatching { context.startActivity(intent) }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
+    if (mode == AuthMode.LOGIN) {
+        TextButton(onClick = { switchTo(AuthMode.RESET) }, modifier = Modifier.fillMaxWidth()) {
             Text("비밀번호를 잊으셨나요?")
         }
     }
-
     TextButton(
-        onClick = {
-            isSignupMode = !isSignupMode
-            viewModel.clearError()
-        },
+        onClick = { switchTo(if (mode == AuthMode.SIGNUP || mode == AuthMode.RESET) AuthMode.LOGIN else AuthMode.SIGNUP) },
         modifier = Modifier.fillMaxWidth()
     ) {
-        Text(if (isSignupMode) "이미 계정이 있으신가요? 로그인" else "계정이 없으신가요? 회원가입")
+        Text(
+            when (mode) {
+                AuthMode.LOGIN -> "계정이 없으신가요? 회원가입"
+                AuthMode.SIGNUP -> "이미 계정이 있으신가요? 로그인"
+                AuthMode.RESET -> "로그인으로 돌아가기"
+            }
+        )
     }
 }
 

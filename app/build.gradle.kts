@@ -22,8 +22,16 @@ android {
         applicationId = "com.mhmh2.englishbite"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
+        versionCode = 8
         versionName = "1.0"
+
+        // Google sign-in: the OAuth *web* client ID the ID token is issued for (the server checks it
+        // as EB_GOOGLE_CLIENT_ID). Public, like an API key id. `-PgoogleWebClientId=` (empty) hides
+        // the "구글로 계속하기" button. It only works once an Android OAuth client for this package
+        // and the signing key's SHA-1 exists in the same Google Cloud project.
+        val googleClient = (project.findProperty("googleWebClientId") as String?)
+            ?: "865652175610-pfqom7oppf92bob56eb5c19ac7el80p3.apps.googleusercontent.com"
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleClient\"")
     }
 
     signingConfigs {
@@ -105,4 +113,7 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.youtube.player.core)
     implementation(libs.coil.compose)
+    implementation(libs.credentials)
+    implementation(libs.credentials.play)
+    implementation(libs.google.id)
 }

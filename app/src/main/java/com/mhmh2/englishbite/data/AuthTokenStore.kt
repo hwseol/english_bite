@@ -14,11 +14,15 @@ class AuthTokenStore(context: Context) {
     val email: String? get() = prefs.getString(KEY_EMAIL, null)
     val nickname: String? get() = prefs.getString(KEY_NICKNAME, null)
 
+    /** False only for an account that signed up with Google and never set a password. */
+    val hasPassword: Boolean get() = prefs.getBoolean(KEY_HAS_PASSWORD, true)
+
     fun save(auth: AuthResponse) {
         prefs.edit()
             .putString(KEY_TOKEN, auth.token)
             .putString(KEY_EMAIL, auth.email)
             .putString(KEY_NICKNAME, auth.nickname)
+            .putBoolean(KEY_HAS_PASSWORD, auth.has_password != false)
             .apply()
     }
 
@@ -30,5 +34,6 @@ class AuthTokenStore(context: Context) {
         private const val KEY_TOKEN = "token"
         private const val KEY_EMAIL = "email"
         private const val KEY_NICKNAME = "nickname"
+        private const val KEY_HAS_PASSWORD = "has_password"
     }
 }
