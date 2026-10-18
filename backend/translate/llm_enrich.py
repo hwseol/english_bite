@@ -126,6 +126,10 @@ def _id_of(key) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# News clips are full of two-word scraps the sentence splitter leaves on their own ("they said.",
+# "commanding,", "Yes."). A model sometimes leaves such a scrap blank instead of translating it;
+# that is not worth throwing a whole video away for. Up to a few per batch are kept in English.
+TINY_FRAGMENT_MAX_WORDS = 3
 _REPEAT_RE = re.compile(r"([가-힣A-Za-z0-9]+)(?:\s+\1){4,}")
 
 
@@ -142,7 +146,7 @@ def _bad_translation(source: str, ko: str) -> str | None:
     return None
 
 
-def parse_reply(text: str, expected_t: dict[int, str], lo: int, hi: int) -> tuple[dict[int, str], list[dict]]:
+def parse_reply(text: str, expected_t: dict[int, str], lo: int, hi: int) -> tuple[dict[int, str], list[dict], int]:
     """Returns ({T number: Korean}, raw idiom dicts keyed "sentence_index") or raises ValueError
     describing what was wrong - which makes the caller ask again."""
     obj = _extract_json(text)
@@ -158,6 +162,14 @@ def parse_reply(text: str, expected_t: dict[int, str], lo: int, hi: int) -> tupl
         translations = dict(zip(sorted(expected_t), raw_tr))  # a plain ordered list also works
     else:
         raise ValueError("no usable 'translations'")
+
+    fallbacks = 0
+    for t, src in expected_t.items():
+        if not translations.get(t, "").strip() and len(re.findall(r"[A-Za-z']+", src)) <= TINY_FRAGMENT_MAX_WORDS:
+            translations[t] = src
+            fallbacks += 1
+    if fallbacks > max(2, len(expected_t) // 8):
+        raise ValueError(f"too many untranslated fragments ({fallbacks})")
 
     missing = [t for t in expected_t if t not in translations]
     if missing:
@@ -182,7 +194,7 @@ def parse_reply(text: str, expected_t: dict[int, str], lo: int, hi: int) -> tupl
                 "note_ko": item.get("note_ko") or "",
                 "example": item.get("example") or "",
             })
-    return {t: translations[t].strip() for t in expected_t}, findings
+    return {t: translations[t].strip() for t in expected_t}, findings, fallbacks
 
 
 # --- running one model over a whole video ----------------------------------------------------
@@ -208,12 +220,12 @@ def _run_batch(config: dict, model_cfg: dict, prompt: str, expected_t: dict[int,
         try:
             text, served = llm_client.call(config, model_cfg, prompt)
         except RateLimited as e:
-            if e.wait_s <= max_wait and waits < 4:
+            if e.wait_s <= max_wait and waits < 6:
                 waits += 1
                 log(f"    한도 초과 - {e.wait_s:.0f}초 기다립니다")
                 time.sleep(e.wait_s + 1)
                 continue
-            _cool_down(model_cfg, config.get("cooldown_after_exhaustion_s", 900))
+            _cool_down(model_cfg, min(max(e.wait_s, config.get("cooldown_after_exhaustion_s", 900)), 24 * 3600))
             raise _ModelFailed(f"한도 소진 (약 {e.wait_s:.0f}초 뒤 가능)")
         except Fatal as e:
             _cool_down(model_cfg, 3600)
@@ -227,7 +239,9 @@ def _run_batch(config: dict, model_cfg: dict, prompt: str, expected_t: dict[int,
                 # asking again just risks the same, and this video should move to the next model.
                 raise _ModelFailed(f"다른 모델이 답함: {served or '(알 수 없음)'}")
             try:
-                translations, findings = parse_reply(text, expected_t, lo, hi)
+                translations, findings, fallbacks = parse_reply(text, expected_t, lo, hi)
+                if fallbacks:
+                    log(f"    짧은 조각 {fallbacks}개는 번역이 비어 있어서 영어 그대로 둡니다")
                 return translations, findings, served
             except (ValueError, json.JSONDecodeError) as e:
                 problem = f"응답 문제: {e}"

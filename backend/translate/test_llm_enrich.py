@@ -314,5 +314,39 @@ admin_sync.sync()
 check("cached transcript -> no download for that video", "vid00000001" not in downloads and "vid00000001" in published, f"{downloads} {published}")
 check("the other videos are still downloaded", downloads == ["vid00000002", "vid00000003"], str(downloads))
 
+# --- 16. a short-term limit is waited out; a long one is skipped for as long as it says --------------------
+CONFIG_PATIENT = dict(CONFIG, max_wait_on_429_s=600)
+S, D, M = video(10)
+install_fake(lambda mid, p, n: RateLimited(300) if n == 1 else make_reply(p, mid))
+res = llm_enrich.enrich(S, D, M, CONFIG_PATIENT, log=lambda *_: None)
+check("a 5-minute limit is waited out on the SAME model (no mid-video switch)", res.model == "model-a" and any(s >= 300 for s in sleeps), str(sleeps))
+install_fake(lambda mid, p, n: RateLimited(40000) if mid == "model-a" else make_reply(p, mid))
+llm_enrich.enrich(S, D, M, CONFIG_PATIENT, log=lambda *_: None)
+left = llm_enrich._cooling_until["model-a"] - time.time()
+check("a daily-sized limit keeps the model out for about that long (not a fixed 15 min)", 39000 < left < 41000, f"{left:.0f}s")
+
+# --- 17. a blank translation of a tiny scrap is tolerated; a blank full sentence is not ----------------------
+S, D, M = video(10)
+S[3]["text"] = D[3]["text"] = "they said."
+
+
+def blank(t_id, only_model=None):
+    def behaviour(mid, p, n):
+        reply = json.loads(make_reply(p, mid))
+        if only_model is None or mid == only_model:
+            reply["translations"][f"T{t_id}"] = ""
+        return json.dumps(reply, ensure_ascii=False)
+    return behaviour
+
+
+install_fake(blank(4))
+res = llm_enrich.enrich(S, D, M, CONFIG, log=lambda *_: None)
+check("blank translation of 'they said.' does not sink the video (no retry, kept in English)",
+      res.model == "model-a" and len(calls) == 1 and res.translations[3] == "they said.", f"{calls} {res.translations[3]!r}")
+install_fake(blank(2, only_model="model-a"))  # T2 is a normal 5-word sentence; only model-a leaves it blank
+res = llm_enrich.enrich(S, D, M, CONFIG, log=lambda *_: None)
+check("blank translation of a real sentence still fails that model (-> next model finishes)",
+      res.model == "model-b" and [c[0] for c in calls].count("model-a") == 3, str(calls))
+
 print(f"\n{len(failures)} failure(s)" if failures else "\nall checks passed")
 sys.exit(1 if failures else 0)

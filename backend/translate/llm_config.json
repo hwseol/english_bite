@@ -19,7 +19,7 @@
     {
       "id": "mistral-large-3",
       "via": "router",
-      "expect_served_by": "mistral-large-3",
+      "expect_served_by": "mistral-large-2512",
       "batch_sentences": 30,
       "max_tokens": 6500,
       "min_interval_s": 0,
@@ -47,7 +47,7 @@
 
   "retries_per_batch": 3,
   "backoff_seconds": [5, 20, 60],
-  "max_wait_on_429_s": 90,
+  "max_wait_on_429_s": 600,
   "cooldown_after_exhaustion_s": 900,
   "max_idioms_per_batch": 12
 }
