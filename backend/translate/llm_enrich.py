@@ -96,15 +96,35 @@ def _build_block(sentences: list[dict], display_sentences: list[dict], index_map
     return "\n".join(lines)
 
 
-def build_prompt(block: str, title: str | None = None) -> str:
+def _title_line(title: str | None) -> str:
     # The video's title is context only: speech recognition mishears words (a title saying
     # "DOUBLE-EDGED SWORD" resolves a transcript that says "double edged short") and garbles names.
-    title_line = (f'\nVideo title (context only - use it to resolve mis-heard words and names; do NOT translate it): "{title}"\n'
-                  if title else "")
-    return (PROMPT.replace("{title_line}", title_line)
+    return (f'\nVideo title (context only - use it to resolve mis-heard words and names; do NOT translate it): "{title}"\n'
+            if title else "")
+
+
+def build_prompt(block: str, title: str | None = None) -> str:
+    return (PROMPT.replace("{title_line}", _title_line(title))
                   .replace("{idiom_rules}", idioms.IDIOM_RULES)
                   .replace("{ko_rules}", KO_RULES)
                   .replace("{block}", block))
+
+
+REPAIR_PROMPT = """You are helping Korean office workers study English with real news clips. A previous answer
+left some subtitle lines untranslated. Translate ONLY the lines marked "T<number>" below into Korean.
+{title_line}
+{ko_rules}
+
+=== INPUT ===
+Lines marked "context" are neighbouring lines shown only so you can follow the meaning - do NOT translate them.
+
+{block}
+
+=== OUTPUT ===
+Respond with ONLY this JSON object - no commentary, no code fence:
+{"translations": {"T7": "<Korean for T7>"}}
+It must contain EVERY T number listed above, each with a real Korean translation.
+"""
 
 
 # --- reading the reply ----------------------------------------------------------------------
@@ -146,9 +166,11 @@ def _bad_translation(source: str, ko: str) -> str | None:
     return None
 
 
-def parse_reply(text: str, expected_t: dict[int, str], lo: int, hi: int) -> tuple[dict[int, str], list[dict], int]:
-    """Returns ({T number: Korean}, raw idiom dicts keyed "sentence_index") or raises ValueError
-    describing what was wrong - which makes the caller ask again."""
+def parse_reply(text: str, expected_t: dict[int, str], lo: int, hi: int) -> tuple[dict[int, str], list[dict], int, dict[int, str]]:
+    """Returns (good translations {T number: Korean}, raw idiom dicts keyed "sentence_index", how many
+    tiny scraps were left in English, bad lines {T number: why}) or raises ValueError describing what
+    was wrong with the reply as a whole - which makes the caller ask again. A few bad or blank lines
+    are not fatal: they come back in `bad` so just those can be asked for again (see _repair)."""
     obj = _extract_json(text)
 
     raw_tr = obj.get("translations")
@@ -171,13 +193,14 @@ def parse_reply(text: str, expected_t: dict[int, str], lo: int, hi: int) -> tupl
     if fallbacks > max(2, len(expected_t) // 8):
         raise ValueError(f"too many untranslated fragments ({fallbacks})")
 
-    missing = [t for t in expected_t if t not in translations]
-    if missing:
-        raise ValueError(f"missing translations for T{missing[0]}" + (f" (+{len(missing) - 1} more)" if len(missing) > 1 else ""))
+    bad: dict[int, str] = {}
     for t, src in expected_t.items():
-        problem = _bad_translation(src, translations[t])
+        problem = "missing" if t not in translations else _bad_translation(src, translations[t])
         if problem:
-            raise ValueError(f"T{t}: {problem}")
+            bad[t] = problem
+    if len(bad) > max(3, len(expected_t) // 8):  # too much wrong to patch: ask for the whole batch again
+        first = next(iter(bad))
+        raise ValueError(f"T{first}: {bad[first]}" + (f" (+{len(bad) - 1} more)" if len(bad) > 1 else ""))
 
     raw_idioms = obj.get("idioms", [])
     findings = []
@@ -194,7 +217,40 @@ def parse_reply(text: str, expected_t: dict[int, str], lo: int, hi: int) -> tupl
                 "note_ko": item.get("note_ko") or "",
                 "example": item.get("example") or "",
             })
-    return {t: translations[t].strip() for t in expected_t}, findings, fallbacks
+    return {t: translations[t].strip() for t in expected_t if t not in bad}, findings, fallbacks, bad
+
+
+def _repair(config: dict, model_cfg: dict, expected_t: dict[int, str], bad: dict[int, str], title, log) -> dict[int, str] | None:
+    """Asks the same model again for just the lines it left out, with their neighbours as context.
+    Returns {T: Korean} for all of them, or None if that didn't work (the caller then falls back to
+    asking for the whole batch again)."""
+    log(f"    빠진 {len(bad)}줄만 다시 요청합니다")
+    keys = sorted(expected_t)
+    show: set[int] = set()
+    for t in bad:
+        i = keys.index(t)
+        show.update(keys[max(0, i - 1): i + 2])
+    block = "\n".join(f"T{t}: {expected_t[t]}" if t in bad else f"context (do not translate): {expected_t[t]}"
+                      for t in keys if t in show)
+    prompt = (REPAIR_PROMPT.replace("{title_line}", _title_line(title))
+                           .replace("{ko_rules}", KO_RULES)
+                           .replace("{block}", block))
+    try:
+        text, served = llm_client.call(config, model_cfg, prompt)
+        expect = model_cfg.get("expect_served_by")
+        if expect and expect.lower() not in served.lower():
+            return None
+        raw = _extract_json(text).get("translations")
+        got = {_id_of(k): v for k, v in raw.items() if isinstance(v, str)} if isinstance(raw, dict) else {}
+    except (llm_client.LLMError, ValueError):
+        return None
+    fixed = {}
+    for t in bad:
+        ko = (got.get(t) or "").strip()
+        if _bad_translation(expected_t[t], ko):
+            return None
+        fixed[t] = ko
+    return fixed
 
 
 # --- running one model over a whole video ----------------------------------------------------
@@ -210,7 +266,7 @@ def _is_cooling(model_cfg: dict) -> bool:
     return _cooling_until.get(model_cfg["id"], 0.0) > time.time()
 
 
-def _run_batch(config: dict, model_cfg: dict, prompt: str, expected_t: dict[int, str], lo: int, hi: int, log):
+def _run_batch(config: dict, model_cfg: dict, prompt: str, expected_t: dict[int, str], lo: int, hi: int, log, title=None):
     tries_allowed = config.get("retries_per_batch", 3)
     backoff = config.get("backoff_seconds", [5, 20, 60])
     max_wait = config.get("max_wait_on_429_s", 90)
@@ -239,9 +295,15 @@ def _run_batch(config: dict, model_cfg: dict, prompt: str, expected_t: dict[int,
                 # asking again just risks the same, and this video should move to the next model.
                 raise _ModelFailed(f"다른 모델이 답함: {served or '(알 수 없음)'}")
             try:
-                translations, findings, fallbacks = parse_reply(text, expected_t, lo, hi)
+                translations, findings, fallbacks, bad = parse_reply(text, expected_t, lo, hi)
                 if fallbacks:
                     log(f"    짧은 조각 {fallbacks}개는 번역이 비어 있어서 영어 그대로 둡니다")
+                if bad:
+                    fixed = _repair(config, model_cfg, expected_t, bad, title, log)
+                    if fixed is None:
+                        first = next(iter(bad))
+                        raise ValueError(f"T{first}: {bad[first]} (그 줄만 다시 요청했지만 실패)")
+                    translations.update(fixed)
                 return translations, findings, served
             except (ValueError, json.JSONDecodeError) as e:
                 problem = f"응답 문제: {e}"
@@ -265,7 +327,7 @@ def _enrich_with(config: dict, model_cfg: dict, sentences, display_sentences, in
         expected_t = {t: display_sentences[t - 1]["text"] for i in range(lo, hi + 1) for t in index_map[i]}
         prompt = build_prompt(_build_block(sentences, display_sentences, index_map, lo, hi), title)
         log(f"  [{model_cfg['id']}] 문장 {lo}-{hi}/{n}")
-        batch_tr, batch_raw, served = _run_batch(config, model_cfg, prompt, expected_t, lo, hi, log)
+        batch_tr, batch_raw, served = _run_batch(config, model_cfg, prompt, expected_t, lo, hi, log, title)
         translations.update(batch_tr)
         if served and served not in served_names:
             served_names.append(served)

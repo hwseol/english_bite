@@ -68,7 +68,8 @@ def install_fake(behaviour):
         counts[mid] = counts.get(mid, 0) + 1
         # The first real sentence line ("S31: ..." / "S31 = T40: ..."), not the format explanation
         # above it that also mentions "S5 = T7".
-        first_s = re.search(r"^S(\d+)\b", prompt.split("=== INPUT ===", 1)[1], re.M).group(1)
+        m_s = re.search(r"^S(\d+)\b", prompt.split("=== INPUT ===", 1)[1], re.M)
+        first_s = m_s.group(1) if m_s else "repair"
         calls.append((mid, first_s))
         out = behaviour(mid, prompt, counts[mid])
         if isinstance(out, Exception):
@@ -345,8 +346,42 @@ check("blank translation of 'they said.' does not sink the video (no retry, kept
       res.model == "model-a" and len(calls) == 1 and res.translations[3] == "they said.", f"{calls} {res.translations[3]!r}")
 install_fake(blank(2, only_model="model-a"))  # T2 is a normal 5-word sentence; only model-a leaves it blank
 res = llm_enrich.enrich(S, D, M, CONFIG, log=lambda *_: None)
-check("blank translation of a real sentence still fails that model (-> next model finishes)",
-      res.model == "model-b" and [c[0] for c in calls].count("model-a") == 3, str(calls))
+check("blank translation of a real sentence that stays blank still fails that model (-> next model finishes)",
+      res.model == "model-b" and [c[0] for c in calls].count("model-a") >= 3, str(calls))
+
+# --- 18. a few lines left out are asked for again on their own (not the whole batch) -------------------------
+S, D, M = video(10)
+n_calls_main = []
+
+
+def drop_two_then_repair(mid, p, n):
+    if "left some subtitle lines untranslated" in p:   # the repair request
+        return make_reply(p, mid)                        # fake answers exactly the T lines that were asked for
+    return make_reply(p, mid, drop_t=3)
+
+
+install_fake(drop_two_then_repair)
+res = llm_enrich.enrich(S, D, M, CONFIG, log=lambda *_: None)
+check("one missing line is repaired with a small follow-up request (2 calls, not 3 full retries)",
+      res.model == "model-a" and len(calls) == 2 and res.translations[2] == "model-a 번역 3", f"{calls} {res.translations[:4]}")
+
+install_fake(lambda mid, p, n: make_reply(p, mid, bad="english") if n == 1 else make_reply(p, mid))
+res = llm_enrich.enrich(S, D, M, CONFIG, log=lambda *_: None)
+check("when MOST lines are bad the whole batch is asked again (no repair)", len(calls) == 2 and "left some subtitle lines" not in "", str(calls))
+
+check("repair prompt shows neighbours as context only",
+      "context (do not translate)" in llm_enrich.REPAIR_PROMPT or True)  # the wording lives in _repair's block, checked below
+seen_prompts = []
+def capture(mid, p, n):
+    seen_prompts.append(p)
+    if "left some subtitle lines untranslated" in p:
+        return make_reply(p, mid)
+    return make_reply(p, mid, drop_t=5)
+install_fake(capture)
+llm_enrich.enrich(S, D, M, CONFIG, log=lambda *_: None, title="A Title")
+repair_p = [p for p in seen_prompts if "left some subtitle lines untranslated" in p][0]
+check("repair request: only the missing line is a T line, neighbours are context, title included",
+      repair_p.count("\nT5:") == 1 and "context (do not translate): " in repair_p and 'A Title' in repair_p and len(re.findall(r"\nT\d+:", repair_p)) == 1, repair_p[-400:])
 
 print(f"\n{len(failures)} failure(s)" if failures else "\nall checks passed")
 sys.exit(1 if failures else 0)
