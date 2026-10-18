@@ -383,5 +383,25 @@ repair_p = [p for p in seen_prompts if "left some subtitle lines untranslated" i
 check("repair request: only the missing line is a T line, neighbours are context, title included",
       repair_p.count("\nT5:") == 1 and "context (do not translate): " in repair_p and 'A Title' in repair_p and len(re.findall(r"\nT\d+:", repair_p)) == 1, repair_p[-400:])
 
+# --- 19. one channel's listing failing does not end the run ---------------------------------------------
+admin_sync.CHANNELS = {"CNN": "u1", "BBC": "u2"}
+
+
+def listing2(url, n):
+    if url == "u1":
+        raise RuntimeError("[youtube:tab] @CNN: Failed to resolve url")
+    return ["vid00000001"]
+
+
+admin_sync.fetch_recent_video_ids = listing2
+admin_sync._already_known = lambda vid: False
+admin_sync.fetch_video_details = lambda vid: {"timestamp": time.time(), "duration": 60, "title": vid, "thumbnails": []}
+outcomes = iter([None])
+admin_sync._process_and_publish = mixed
+published.clear()
+downloads.clear()
+admin_sync.sync()
+check("a channel whose listing fails does not end the run (the next channel is still scanned)", published == ["vid00000001"], str(published))
+
 print(f"\n{len(failures)} failure(s)" if failures else "\nall checks passed")
 sys.exit(1 if failures else 0)

@@ -127,7 +127,13 @@ def sync() -> None:
 
     for channel_name, url in CHANNELS.items():
         print(f"[{channel_name}] checking latest {RECENT_CHECK_COUNT} uploads...", flush=True)
-        video_ids = fetch_recent_video_ids(url, RECENT_CHECK_COUNT)
+        try:
+            video_ids = fetch_recent_video_ids(url, RECENT_CHECK_COUNT)
+        except Exception as e:
+            # One channel's listing failing (YouTube hiccup, "Failed to resolve url") must not end the
+            # whole run: the channels after it would go unchecked until the next one.
+            print(f"  [FAILED listing] {channel_name}: {e}", flush=True)
+            continue
         for video_id in video_ids:
             # Cheapest check first: one request to the server, before any yt-dlp call.
             if _already_known(video_id):
