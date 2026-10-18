@@ -480,7 +480,13 @@ private fun CatalogCard(item: CatalogItem, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${item.channel} · ${formatViewCount(item.view_count)} · ${formatUploadTime(item.timestamp)}",
+                    // A count of 0 means "not known yet" (the video was seen right after upload), not
+                    // "nobody watched it" - leave it out rather than show a wrong number.
+                    text = listOfNotNull(
+                        item.channel,
+                        formatViewCount(item.view_count).takeIf { item.view_count > 0 },
+                        formatUploadTime(item.timestamp).takeIf { it.isNotEmpty() },
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
