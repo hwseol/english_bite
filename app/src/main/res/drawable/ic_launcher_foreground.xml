@@ -3,16 +3,34 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Speech bubble ("English") with a bite taken out of it ("Bite") - a rounded-rect
-         bubble with a smooth curved tail (not a sharp spike) and a bolder corner bite.
-         The bite is a true hole (evenOdd fill over both subpaths) rather than a second
-         shape painted in the background's own color, so it reads correctly against any
-         background - including the gradient below - instead of showing a flat patch. -->
-    <path
-        android:fillColor="#2F7DFF"
-        android:fillType="evenOdd"
-        android:pathData="M30,26 L78,26 A10,10 0 0 1 88,36 L88,64 A10,10 0 0 1 78,74
-                           L52,74 C46,80 38,85 29,86 C31,81 31,77 30,74
-                           A10,10 0 0 1 20,64 L20,36 A10,10 0 0 1 30,26 Z
-                           M68,34 A14,14 0 1 1 96,34 A14,14 0 1 1 68,34 Z" />
+    <!-- An online-lecture screen: a video with a play button, and two subtitle lines under it, the
+         second one filled in yellow - the karaoke highlight the app is built around.
+         The mark is drawn at 68 x 74 and scaled down so it stays inside the adaptive icon's safe
+         zone (the central 66dp circle) whatever shape the launcher masks the icon to. -->
+    <group
+        android:scaleX="0.8"
+        android:scaleY="0.8"
+        android:pivotX="54"
+        android:pivotY="59"
+        android:translateY="-5">
+        <!-- Video screen -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M28,22 L80,22 A8,8 0 0 1 88,30 L88,58 A8,8 0 0 1 80,66 L28,66 A8,8 0 0 1 20,58 L20,30 A8,8 0 0 1 28,22 Z" />
+        <!-- Play button -->
+        <path
+            android:fillColor="#2563EB"
+            android:pathData="M54,30 A14,14 0 1 1 54,58 A14,14 0 1 1 54,30 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M49.5,36.5 L49.5,51.5 L62,44 Z" />
+        <!-- Subtitle line 1 (white) -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M24.5,74 L83.5,74 A4.5,4.5 0 0 1 83.5,83 L24.5,83 A4.5,4.5 0 0 1 24.5,74 Z" />
+        <!-- Subtitle line 2 (the part already "sung", yellow) -->
+        <path
+            android:fillColor="#FBBF24"
+            android:pathData="M24.5,87 L57.5,87 A4.5,4.5 0 0 1 57.5,96 L24.5,96 A4.5,4.5 0 0 1 24.5,87 Z" />
+    </group>
 </vector>
