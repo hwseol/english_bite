@@ -268,5 +268,51 @@ published.clear()
 admin_sync.sync()
 check("a video from 47h ago (e.g. uploaded late last night) is picked up", len(published) == 3, str(published))
 
+# --- 12. prompt: the video title as context, one Korean style ------------------------------------------
+p = llm_enrich.build_prompt("S1 = T1: Hello.", "DOUBLE-EDGED SWORD: CyberGuy explains")
+check("title goes into the prompt as context only", "Video title (context only" in p and "DOUBLE-EDGED SWORD" in p and "do NOT translate it" in p)
+check("no title -> no title line", "Video title" not in llm_enrich.build_prompt("S1 = T1: Hello.", None))
+check("one consistent Korean style is requested", "never ~습니다" in p and "plain ~다" in p)
+
+# --- 13. a phrase is kept once per video (first occurrence) ---------------------------------------------
+S, D, M = video(10)
+S[2]["text"] = D[2]["text"] = "The president signed an executive order on Monday."
+S[6]["text"] = D[6]["text"] = "That executive order will take effect next week."
+eo = lambda n: {"sentence": n, "phrase": "executive order", "note_ko": "대통령이 내리는 행정 명령입니다.", "example": "She signed an executive order today."}
+install_fake(lambda mid, p, n: make_reply(p, mid, idioms_json=[eo(3), eo(7)]))
+res = llm_enrich.enrich(S, D, M, CONFIG, log=lambda *_: None)
+check("repeated phrase appears once, at its first sentence", [(f["sentence_index"], f["phrase"]) for f in res.idioms] == [(3, "executive order")], str(res.idioms))
+
+# --- 14. the Whisper transcript survives a deferral -------------------------------------------------------
+import tempfile
+from pathlib import Path
+
+import words_cache
+
+words_cache.WORDS_DIR = Path(tempfile.mkdtemp())
+transcribe_calls = []
+pipeline._transcribe_audio = lambda audio: (transcribe_calls.append(audio) or words)
+install_fake(lambda mid, p, n: Transient("down"))
+try:
+    pipeline.process_uploaded_audio("abcdefghijk", Path("a.webm"), title="Some title")
+    check("deferred video keeps its transcript", False)
+except llm_enrich.AllModelsFailed:
+    check("deferred video keeps its transcript", words_cache.load("abcdefghijk") is not None and len(transcribe_calls) == 1)
+install_fake(lambda mid, p, n: make_reply(p, mid))
+res = pipeline.process_uploaded_audio("abcdefghijk", None, title="Some title")  # no audio any more
+check("the retry reuses it - no second Whisper run, no audio needed", len(transcribe_calls) == 1 and res["llm_model"] == "model-a")
+check("transcript removed once the video succeeded", words_cache.load("abcdefghijk") is None)
+
+# --- 15. admin_sync does not download audio it doesn't need -----------------------------------------------
+words_cache.save("vid00000001", words)
+admin_sync.fetch_video_details = lambda vid: {"timestamp": time.time(), "duration": 60, "title": vid, "thumbnails": []}
+outcomes = iter([None, None, None])
+admin_sync._process_and_publish = mixed
+published.clear()
+downloads.clear()
+admin_sync.sync()
+check("cached transcript -> no download for that video", "vid00000001" not in downloads and "vid00000001" in published, f"{downloads} {published}")
+check("the other videos are still downloaded", downloads == ["vid00000002", "vid00000003"], str(downloads))
+
 print(f"\n{len(failures)} failure(s)" if failures else "\nall checks passed")
 sys.exit(1 if failures else 0)

@@ -37,6 +37,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 import llm_client
 import llm_enrich
+import words_cache
 from catalog import CHANNELS, MAX_DURATION_SECONDS, RECENT_CHECK_COUNT
 from catalog import classify_category, fetch_recent_video_ids, fetch_video_details
 
@@ -96,7 +97,7 @@ def _process_and_publish(token: str, item: dict, audio_path: Path) -> None:
     # of RAM, wasted on the (most common) runs where nothing is new.
     from pipeline import process_uploaded_audio
 
-    result = process_uploaded_audio(item["video_id"], audio_path)
+    result = process_uploaded_audio(item["video_id"], audio_path, title=item.get("title"))
     resp = requests.post(
         f"{SERVER_URL}/admin/publish",
         headers={"X-Admin-Token": token},
@@ -120,6 +121,7 @@ MAX_CONSECUTIVE_LLM_FAILURES = 2
 def sync() -> None:
     token = _load_admin_token()
     cutoff = time.time() - SCAN_WINDOW_HOURS * 3600
+    words_cache.prune()
     router_checked = False
     llm_failures = 0
 
@@ -148,11 +150,16 @@ def sync() -> None:
                 continue
 
             print(f"  [processing] {video_id}: {info.get('title')}", flush=True)
-            try:
-                audio_path = _download_audio(video_id)
-            except Exception as e:
-                print(f"  [FAILED download] {video_id}: {e}")
-                continue
+            audio_path = None
+            if words_cache.load(video_id) is not None:
+                # Deferred earlier because no model could finish it: the transcript is still on disk.
+                print("    (받아쓰기 결과가 남아 있어서 다운로드와 Whisper를 건너뜁니다)", flush=True)
+            else:
+                try:
+                    audio_path = _download_audio(video_id)
+                except Exception as e:
+                    print(f"  [FAILED download] {video_id}: {e}")
+                    continue
 
             thumbnails = info.get("thumbnails") or []
             title = info.get("title") or ""
@@ -180,12 +187,14 @@ def sync() -> None:
                 llm_failures += 1
                 print(f"  [DEFERRED - 모델 실패] {video_id}: {e}")
                 if llm_failures >= MAX_CONSECUTIVE_LLM_FAILURES:
-                    shutil.rmtree(audio_path.parent, ignore_errors=True)
+                    if audio_path:
+                        shutil.rmtree(audio_path.parent, ignore_errors=True)
                     raise SystemExit(f"연속 {llm_failures}개 영상에서 모든 모델이 실패해서 이번 동기화를 중단합니다.")
             except Exception as e:
                 print(f"  [FAILED process/publish] {video_id}: {e}")
             finally:
-                shutil.rmtree(audio_path.parent, ignore_errors=True)
+                if audio_path:
+                    shutil.rmtree(audio_path.parent, ignore_errors=True)
 
 
 if __name__ == "__main__":

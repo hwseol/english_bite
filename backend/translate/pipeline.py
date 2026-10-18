@@ -11,6 +11,7 @@ import yt_dlp
 from faster_whisper import WhisperModel
 
 import llm_enrich
+import words_cache
 from idioms import _phrase_appears_in_sentence
 
 WHISPER_MODEL_NAME = "small"
@@ -214,7 +215,7 @@ def _split_long_sentence(sentence: dict) -> list[dict]:
     return [p for half in pieces for p in _split_long_sentence(half)]
 
 
-def _process_from_words(video_id: str, words: list[dict], llm_config: dict | None = None) -> dict:
+def _process_from_words(video_id: str, words: list[dict], llm_config: dict | None = None, title: str | None = None) -> dict:
     sentences = words_to_sentences(words)
     display_sentences, index_map = split_sentences_for_display(sentences)
 
@@ -223,7 +224,7 @@ def _process_from_words(video_id: str, words: list[dict], llm_config: dict | Non
     # the Korean subtitles are written for the screen-sized pieces. One request per batch returns
     # both; see llm_enrich.py. Raises llm_enrich.AllModelsFailed if no model could do the whole
     # video - the caller must then not publish it.
-    enriched = llm_enrich.enrich(sentences, display_sentences, index_map, llm_config)
+    enriched = llm_enrich.enrich(sentences, display_sentences, index_map, llm_config, title=title)
     for sentence, ko in zip(display_sentences, enriched.translations):
         sentence["ko"] = ko
 
@@ -250,11 +251,19 @@ def process_video(url: str):
     return _process_from_words(video_id, words)
 
 
-def process_uploaded_audio(video_id: str, audio_path: Path) -> dict:
-    """Same pipeline as process_video, but starting from an audio file that's already on disk -
-    for the admin-upload flow where the Android app extracted and uploaded the audio itself."""
-    words = _transcribe_audio(audio_path)
-    return _process_from_words(video_id, words)
+def process_uploaded_audio(video_id: str, audio_path: Path | None, title: str | None = None) -> dict:
+    """Same pipeline as process_video, but starting from an audio file that's already on disk (the
+    PC's sync downloads it first). The Whisper transcript is kept in words_cache while the language
+    models work: if none of them can finish the video, llm_enrich.AllModelsFailed propagates, the
+    transcript stays, and the retry on the next run skips the download and transcription
+    (audio_path may then be None). It is deleted only once the video has been processed."""
+    words = words_cache.load(video_id)
+    if words is None:
+        words = _transcribe_audio(audio_path)
+        words_cache.save(video_id, words)
+    result = _process_from_words(video_id, words, title=title)
+    words_cache.delete(video_id)
+    return result
 
 
 if __name__ == "__main__":

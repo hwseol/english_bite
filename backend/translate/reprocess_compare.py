@@ -161,7 +161,7 @@ def main() -> int:
             started = time.time()
             usage_before = copy.deepcopy(llm_client.usage)
             try:
-                new = pipeline._process_from_words(vid, words, cfg)
+                new = pipeline._process_from_words(vid, words, cfg, title=item.get("title"))
             except llm_enrich.AllModelsFailed as e:
                 print(f"  [실패] {e}")
                 parts += [f"## {vid} — 실패 ({forced or '기본 순서'})", f"- {e}", ""]

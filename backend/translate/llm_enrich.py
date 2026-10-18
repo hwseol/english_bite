@@ -46,7 +46,10 @@ class Enriched:
 
 
 KO_RULES = """Translate EVERY T line into Korean subtitles.
-- Natural, concise Korean in the plain written news style (~다, ~했다), like a TV news subtitle.
+- Natural, concise Korean in the plain written news style, like a TV news subtitle. Use ONE consistent
+  style throughout: statements end in plain ~다 / ~했다 / ~이다 (never ~습니다, ~어요, ~해요); questions
+  end in plain ~는가? / ~나? / ~까? (never ~나요?, ~ㅂ니까?). Greetings and direct address follow the same
+  plain style.
 - Keep the meaning exactly. Do not add, drop, merge or split anything: exactly one Korean line
   per T line, even for a short fragment.
 - The lines come from speech recognition, so odd spacing or a mis-heard word is possible - translate
@@ -57,7 +60,7 @@ KO_RULES = """Translate EVERY T line into Korean subtitles.
 
 PROMPT = """You are helping Korean office workers study English with real news clips. The lines below are
 consecutive speech-recognition output. Do TWO jobs and answer with ONE JSON object.
-
+{title_line}
 === JOB 1: IDIOMS ===
 {idiom_rules}
 
@@ -93,8 +96,13 @@ def _build_block(sentences: list[dict], display_sentences: list[dict], index_map
     return "\n".join(lines)
 
 
-def build_prompt(block: str) -> str:
-    return (PROMPT.replace("{idiom_rules}", idioms.IDIOM_RULES)
+def build_prompt(block: str, title: str | None = None) -> str:
+    # The video's title is context only: speech recognition mishears words (a title saying
+    # "DOUBLE-EDGED SWORD" resolves a transcript that says "double edged short") and garbles names.
+    title_line = (f'\nVideo title (context only - use it to resolve mis-heard words and names; do NOT translate it): "{title}"\n'
+                  if title else "")
+    return (PROMPT.replace("{title_line}", title_line)
+                  .replace("{idiom_rules}", idioms.IDIOM_RULES)
                   .replace("{ko_rules}", KO_RULES)
                   .replace("{block}", block))
 
@@ -230,7 +238,7 @@ def _run_batch(config: dict, model_cfg: dict, prompt: str, expected_t: dict[int,
     raise _ModelFailed(f"{tries_allowed}번 시도했지만 실패: {problem}")
 
 
-def _enrich_with(config: dict, model_cfg: dict, sentences, display_sentences, index_map, log) -> Enriched:
+def _enrich_with(config: dict, model_cfg: dict, sentences, display_sentences, index_map, log, title=None) -> Enriched:
     per_batch = max(1, int(model_cfg.get("batch_sentences", 30)))
     max_items = config.get("max_idioms_per_batch", 12)
     n = len(sentences)
@@ -241,7 +249,7 @@ def _enrich_with(config: dict, model_cfg: dict, sentences, display_sentences, in
     for lo in range(1, n + 1, per_batch):
         hi = min(lo + per_batch - 1, n)
         expected_t = {t: display_sentences[t - 1]["text"] for i in range(lo, hi + 1) for t in index_map[i]}
-        prompt = build_prompt(_build_block(sentences, display_sentences, index_map, lo, hi))
+        prompt = build_prompt(_build_block(sentences, display_sentences, index_map, lo, hi), title)
         log(f"  [{model_cfg['id']}] 문장 {lo}-{hi}/{n}")
         batch_tr, batch_raw, served = _run_batch(config, model_cfg, prompt, expected_t, lo, hi, log)
         translations.update(batch_tr)
@@ -249,10 +257,12 @@ def _enrich_with(config: dict, model_cfg: dict, sentences, display_sentences, in
             served_names.append(served)
         findings.extend(idioms.filter_findings(batch_raw, sentences, max_items))
 
-    # Same phrase flagged twice in one sentence (a batch boundary can't cause this, a model can).
+    # Each phrase appears once per video, at its first occurrence: a news clip says "executive order"
+    # or "White House press secretary" many times, and a repeated card teaches nothing the first
+    # one didn't (the old Gemma output had the same repeats).
     seen, unique = set(), []
     for f in findings:
-        key = (f["sentence_index"], f["phrase"].lower())
+        key = re.sub(r"\s+", " ", f["phrase"].lower()).strip()
         if key not in seen:
             seen.add(key)
             unique.append(f)
@@ -261,7 +271,8 @@ def _enrich_with(config: dict, model_cfg: dict, sentences, display_sentences, in
     return Enriched(translations=ordered, idioms=unique, model=model_cfg["id"], served_by=served_names)
 
 
-def enrich(sentences: list[dict], display_sentences: list[dict], index_map: dict, config: dict | None = None, log=print) -> Enriched:
+def enrich(sentences: list[dict], display_sentences: list[dict], index_map: dict, config: dict | None = None, log=print,
+           title: str | None = None) -> Enriched:
     """Idioms and Korean subtitles for a whole video. Raises AllModelsFailed if no model could do
     it - the caller must then leave the video unpublished."""
     if not sentences:
@@ -274,7 +285,7 @@ def enrich(sentences: list[dict], display_sentences: list[dict], index_map: dict
             failures.append(f"{name}: 한도 소진 대기 중")
             continue
         try:
-            return _enrich_with(config, model_cfg, sentences, display_sentences, index_map, log)
+            return _enrich_with(config, model_cfg, sentences, display_sentences, index_map, log, title)
         except _ModelFailed as e:
             log(f"  [{name}] 이 영상은 다음 모델로 처음부터 다시 처리합니다 - {e}")
             failures.append(f"{name}: {e}")
