@@ -8,15 +8,11 @@ from urllib.parse import urlparse, parse_qs
 
 import pysbd
 import yt_dlp
-from faster_whisper import WhisperModel
 
 import llm_enrich
+import stt
 import words_cache
 from idioms import _phrase_appears_in_sentence
-
-WHISPER_MODEL_NAME = "small"
-
-_whisper = None
 
 
 class UserFacingError(Exception):
@@ -34,16 +30,6 @@ def extract_video_id(url: str) -> str:
         if parsed.path.startswith("/shorts/"):
             return parsed.path.split("/")[2]
     raise ValueError(f"Could not parse a video ID from URL: {url}")
-
-
-def load_whisper() -> WhisperModel:
-    global _whisper
-    if _whisper is None:
-        # int8 on CPU (no GPU on this machine) - runs the "small" model at roughly 5x real
-        # time, so a ~15min video transcribes in ~3min. Kept as a long-lived global like the
-        # translator below rather than reloaded per video.
-        _whisper = WhisperModel(WHISPER_MODEL_NAME, device="cpu", compute_type="int8")
-    return _whisper
 
 
 def _download_audio(video_id: str) -> Path:
@@ -70,19 +56,12 @@ def _download_audio(video_id: str) -> Path:
 
 
 def _transcribe_audio(audio_path: Path) -> list[dict]:
-    model = load_whisper()
-    segments, _ = model.transcribe(str(audio_path), word_timestamps=True, language="en")
-    words = []
-    for segment in segments:
-        for w in segment.words:
-            text = w.word.strip()
-            if text:
-                # w.start/w.end come back as numpy float64, not a plain float - json.dump
-                # chokes on that.
-                words.append({"text": text, "start_ms": float(w.start) * 1000, "end_ms": float(w.end) * 1000})
-    if not words:
-        raise UserFacingError("이 영상에서 음성을 인식하지 못했어요. 다른 영상을 시도해주세요.")
-    return words
+    # Whisper runs at Groq (stt.py), not on this machine. stt.SttUnavailable (quota/outage) is left
+    # to propagate: the sync defers the video and tries again on its next run.
+    try:
+        return stt.transcribe(audio_path)
+    except stt.SttNoSpeech as e:
+        raise UserFacingError("이 영상에서 음성을 인식하지 못했어요. 다른 영상을 시도해주세요.") from e
 
 
 def fetch_caption_words(video_id: str):
