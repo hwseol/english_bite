@@ -1,13 +1,10 @@
 # PC-side pipeline (admin_sync.py / pipeline.py / series of helper scripts). The API server has its
 # own, much smaller set (fastapi, uvicorn, requests, yt-dlp) and none of the models.
 #
-# Idioms + Korean subtitles now come from a language model over HTTP (llm_enrich.py), so the local
-# translation/LLM stack is gone: no torch, transformers, accelerate, sentencepiece, safetensors, and
-# no Ollama. Whisper (faster-whisper + ctranslate2, installed with it) is the only heavy step left.
-faster-whisper==1.2.1
-huggingface_hub==1.29.0
-tokenizers==0.23.1
-numpy==2.4.6
+# Nothing heavy runs on this machine any more: idioms + Korean subtitles come from a language model
+# over HTTP (llm_enrich.py) and speech to text from Groq's Whisper API (stt.py). What is left is
+# downloading audio (yt-dlp) and HTTP calls. ffmpeg on PATH is optional: it shrinks the audio before
+# upload (stt.py falls back to the original file).
 pysbd==0.3.4
 requests==2.34.2
 # Kept current by run_admin_sync.bat before every run (YouTube changes break old versions).

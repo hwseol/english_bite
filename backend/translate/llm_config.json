@@ -4,6 +4,19 @@
     "base_url": "http://127.0.0.1:3001/v1",
     "key_file": "~/.secrets/freellmapi_key.txt"
   },
+  "stt": {
+    "_comment": "Speech to text (Whisper) at Groq. Key file lives outside the repository. Free tier: ~7200 audio-seconds/hour, 2000 requests/day; a 429 is waited out up to max_wait_on_429_s, then the video is deferred.",
+    "model": "whisper-large-v3-turbo",
+    "key_file": "~/.secrets/groq_api_key.txt",
+    "max_wait_on_429_s": 600,
+    "retries": 3,
+    "backoff_seconds": [
+      5,
+      20,
+      60
+    ],
+    "timeout_s": 300
+  },
   "models": [
     {
       "id": "mistral-large-3",

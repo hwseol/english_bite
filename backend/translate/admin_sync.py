@@ -1,8 +1,9 @@
 """Runs on the local PC (residential IP, not blocked by YouTube's bot detection): scans the same
 channels catalog.py always has, downloads the audio for each new short-enough video, transcribes
-it with Whisper right here, gets the idioms and Korean subtitles from a language model (through
-the local FreeLLMAPI router, see llm_config.json / llm_enrich.py), and publishes only the finished
-result to the server's /admin/publish endpoint. The server no longer runs any models - it just
+it with Whisper through Groq's API (stt.py), gets the idioms and Korean subtitles from a language
+model (through the local FreeLLMAPI router, see llm_config.json / llm_enrich.py), and publishes only
+the finished result to the server's /admin/publish endpoint. Nothing heavy runs on this machine any
+more - it only downloads audio and makes HTTP calls - and the server runs no models either: it just
 stores and serves what this sends, which is what lets it be a tiny, cheap instance.
 
 This replaces catalog.py --preseed as the thing that actually keeps the catalog fresh - catalog.py
@@ -37,6 +38,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 import llm_client
 import llm_enrich
+import stt
 import words_cache
 from catalog import CHANNELS, MAX_DURATION_SECONDS, RECENT_CHECK_COUNT
 from catalog import classify_category, fetch_recent_video_ids, fetch_video_details
@@ -93,8 +95,6 @@ def _ensure_router() -> None:
 
 
 def _process_and_publish(token: str, item: dict, audio_path: Path) -> None:
-    # Imported here, not at the top: pulling in whisper takes many seconds and a few hundred MB
-    # of RAM, wasted on the (most common) runs where nothing is new.
     from pipeline import process_uploaded_audio
 
     result = process_uploaded_audio(item["video_id"], audio_path, title=item.get("title"))
@@ -187,9 +187,10 @@ def sync() -> None:
                 _process_and_publish(token, item, audio_path)
                 print(f"  [published] {video_id}")
                 llm_failures = 0
-            except llm_enrich.AllModelsFailed as e:
+            except (llm_enrich.AllModelsFailed, stt.SttUnavailable) as e:
                 # Not published, not retried here: the server still doesn't have it, so the next
-                # run (3 hours later) starts it over from the beginning.
+                # run (3 hours later) starts it over from the beginning. (A quota used up at the
+                # speech-to-text provider counts the same as every language model failing.)
                 llm_failures += 1
                 print(f"  [DEFERRED - 모델 실패] {video_id}: {e}")
                 if llm_failures >= MAX_CONSECUTIVE_LLM_FAILURES:
