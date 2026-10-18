@@ -3,34 +3,11 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- An online-lecture screen: a video with a play button, and two subtitle lines under it, the
-         second one filled in yellow - the karaoke highlight the app is built around.
-         The mark is drawn at 68 x 74 and scaled down so it stays inside the adaptive icon's safe
-         zone (the central 66dp circle) whatever shape the launcher masks the icon to. -->
-    <group
-        android:scaleX="0.8"
-        android:scaleY="0.8"
-        android:pivotX="54"
-        android:pivotY="59"
-        android:translateY="-5">
-        <!-- Video screen -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M28,22 L80,22 A8,8 0 0 1 88,30 L88,58 A8,8 0 0 1 80,66 L28,66 A8,8 0 0 1 20,58 L20,30 A8,8 0 0 1 28,22 Z" />
-        <!-- Play button -->
-        <path
-            android:fillColor="#2563EB"
-            android:pathData="M54,30 A14,14 0 1 1 54,58 A14,14 0 1 1 54,30 Z" />
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M49.5,36.5 L49.5,51.5 L62,44 Z" />
-        <!-- Subtitle line 1 (white) -->
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M24.5,74 L83.5,74 A4.5,4.5 0 0 1 83.5,83 L24.5,83 A4.5,4.5 0 0 1 24.5,74 Z" />
-        <!-- Subtitle line 2 (the part already "sung", yellow) -->
-        <path
-            android:fillColor="#FBBF24"
-            android:pathData="M24.5,87 L57.5,87 A4.5,4.5 0 0 1 57.5,96 L24.5,96 A4.5,4.5 0 0 1 24.5,87 Z" />
-    </group>
+    <!-- "EB" set in Pretendard Bold (SIL Open Font License), converted from the font's own glyph
+         outlines to paths so the launcher needs no font. The two letters sit well inside the
+         adaptive icon's safe zone (the central 66dp circle), so any launcher mask - circle,
+         squircle, rounded square - leaves them whole. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32,67.98H50.8V63.19H37.79V56.39H49.8V51.61H37.79V44.81H50.77V40.02H32Z M54.49,67.98H66.35C72.68,67.98 76,64.7 76,60.26C76,56.12 73.03,53.61 69.86,53.46V53.19C72.76,52.53 74.88,50.49 74.88,47.2C74.88,43 71.79,40.02 65.61,40.02H54.49ZM65.19,63.19H60.28V55.7H65.34C68.2,55.7 69.98,57.36 69.98,59.71C69.98,61.8 68.55,63.19 65.19,63.19ZM64.76,51.72H60.28V44.73H64.88C67.54,44.73 69.01,46.12 69.01,48.13C69.01,50.37 67.2,51.72 64.76,51.72Z" />
 </vector>
