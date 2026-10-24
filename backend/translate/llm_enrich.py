@@ -20,6 +20,7 @@ The rules that matter operationally (see llm_config.json for the model order):
 """
 
 import json
+import random
 import re
 import time
 from dataclasses import dataclass, field
@@ -347,6 +348,22 @@ def _enrich_with(config: dict, model_cfg: dict, sentences, display_sentences, in
     return Enriched(translations=ordered, idioms=unique, model=model_cfg["id"], served_by=served_names)
 
 
+def ordered_models(config: dict) -> list[dict]:
+    """The models to try for one video, in order. Normally the configured order, but when the config
+    has `first_pick_weights` ({"model-id": weight}) the model that goes FIRST is drawn at random by
+    those weights among the ones that are not cooling down; the rest keep their configured order as
+    fallbacks. This spreads videos over several models instead of using the first one until its daily
+    quota is gone and only then the others (which left the evenings to the shaky ones)."""
+    models = list(config["models"])
+    weights = config.get("first_pick_weights") or {}
+    pool = [m for m in models if weights.get(m["id"], 0) > 0 and not _is_cooling(m)]
+    if len(pool) > 1:
+        first = random.choices(pool, weights=[weights[m["id"]] for m in pool])[0]
+        models.remove(first)
+        models.insert(0, first)
+    return models
+
+
 def enrich(sentences: list[dict], display_sentences: list[dict], index_map: dict, config: dict | None = None, log=print,
            title: str | None = None) -> Enriched:
     """Idioms and Korean subtitles for a whole video. Raises AllModelsFailed if no model could do
@@ -355,7 +372,7 @@ def enrich(sentences: list[dict], display_sentences: list[dict], index_map: dict
         return Enriched([], [], "")
     config = config or llm_client.load_config()
     failures = []
-    for model_cfg in config["models"]:
+    for model_cfg in ordered_models(config):
         name = model_cfg["id"]
         if _is_cooling(model_cfg):
             failures.append(f"{name}: 한도 소진 대기 중")

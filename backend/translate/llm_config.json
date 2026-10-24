@@ -1,5 +1,5 @@
 {
-  "_comment": "Idiom extraction + Korean translation go through this list, in order. A video is processed by ONE model start to finish; if that model is blocked, the video restarts from the beginning on the next one. Order chosen 2026-10-18 from real runs: mistral-large-3 (served by xkiro) answers a batch in ~15 s and writes short outputs; gpt-oss-120b is a reasoning model (~20k output tokens per video) behind Groq's per-minute/day token limits and a slower OVH route; gemma-4-31b-it needs the router's PROVIDER_TIMEOUT_GOOGLE raised; the paid Gemini key needs credits. No API keys in this file - only the paths of the files that hold them (outside the repository).",
+  "_comment": "Idiom extraction + Korean translation go through this list, in order. A video is processed by ONE model start to finish; if that model is blocked, the video restarts from the beginning on the next one. Order chosen 2026-10-18 from real runs: mistral-large-3 (served by xkiro) answers a batch in ~15 s and writes short outputs; gpt-oss-120b is a reasoning model (~20k output tokens per video) behind Groq's per-minute/day token limits and a slower OVH route; gemma-4-31b-it needs the router's PROVIDER_TIMEOUT_GOOGLE raised; the paid Gemini key needs credits. No API keys in this file - only the paths of the files that hold them (outside the repository). first_pick_weights (2026-10-24): each video's FIRST model is drawn 70% mistral-large-3 / 30% gpt-oss-120b, the rest of the list stays as fallbacks in order. Measured need ~62 videos/day: mistral's free quota is 500K tokens/day (~58 videos at ~8.6K tokens), so using it first for everything ran it dry by midday and left the evenings to the flaky models; with the mix mistral serves ~43 videos (~370K tokens) and gpt-oss ~19 (~400K tokens, within what OVH+Groq already deliver).",
   "router": {
     "base_url": "http://127.0.0.1:3001/v1",
     "key_file": "~/.secrets/freellmapi_key.txt"
@@ -55,6 +55,10 @@
       "timeout_s": 120
     }
   ],
+  "first_pick_weights": {
+    "mistral-large-3": 7,
+    "gpt-oss-120b": 3
+  },
   "retries_per_batch": 3,
   "backoff_seconds": [
     5,

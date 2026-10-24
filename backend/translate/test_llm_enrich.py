@@ -403,5 +403,27 @@ downloads.clear()
 admin_sync.sync()
 check("a channel whose listing fails does not end the run (the next channel is still scanned)", published == ["vid00000001"], str(published))
 
+# --- spreading videos over models (first_pick_weights)
+MIX = {"models": [{"id": "model-a"}, {"id": "model-b"}, {"id": "model-c"}], "first_pick_weights": {"model-a": 3, "model-b": 1}}
+llm_enrich._cooling_until.clear()
+firsts = [llm_enrich.ordered_models(MIX)[0]["id"] for _ in range(4000)]
+share_a = firsts.count("model-a") / len(firsts)
+check("weights spread the first pick (a:b = 3:1 gives ~75% a)", 0.70 < share_a < 0.80, f"a share {share_a:.3f}")
+check("a model without a weight is never picked first", "model-c" not in firsts)
+check("the others stay in configured order as fallbacks",
+      all([m["id"] for m in llm_enrich.ordered_models(MIX)][1:] in (["model-b", "model-c"], ["model-a", "model-c"]) for _ in range(50)))
+check("every model is still in the list exactly once", sorted(m["id"] for m in llm_enrich.ordered_models(MIX)) == ["model-a", "model-b", "model-c"])
+llm_enrich._cool_down(MIX["models"][0], 600)
+# (enrich() skips a cooling model, so what matters is the first model that is NOT cooling)
+check("a cooling model is never the one actually used first",
+      all(next(m for m in llm_enrich.ordered_models(MIX) if not llm_enrich._is_cooling(m))["id"] != "model-a" for _ in range(200)))
+llm_enrich._cooling_until.clear()
+check("without weights the configured order is unchanged",
+      [m["id"] for m in llm_enrich.ordered_models({"models": MIX["models"]})] == ["model-a", "model-b", "model-c"])
+llm_enrich._cool_down(MIX["models"][1], 600)
+check("one usable weighted model: plain order, nothing breaks",
+      [m["id"] for m in llm_enrich.ordered_models(MIX)] == ["model-a", "model-b", "model-c"])
+llm_enrich._cooling_until.clear()
+
 print(f"\n{len(failures)} failure(s)" if failures else "\nall checks passed")
 sys.exit(1 if failures else 0)
